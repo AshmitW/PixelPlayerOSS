@@ -10,6 +10,7 @@ import com.lostf1sh.pixelplayeross.data.model.Song
 import com.lostf1sh.pixelplayeross.data.preferences.PlaylistPreferencesRepository
 import com.lostf1sh.pixelplayeross.data.preferences.UserPreferencesRepository
 import com.lostf1sh.pixelplayeross.data.database.FavoritesDao
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromeFavoritesSyncManager
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,6 +39,7 @@ class MusicRepositoryImplTest {
     private val mockSongRepository: SongRepository = mockk(relaxed = true)
     private val mockFavoritesDao: FavoritesDao = mockk(relaxed = true)
     private val mockArtistImageRepository: ArtistImageRepository = mockk(relaxed = true)
+    private val mockNavidromeFavoritesSyncManager: NavidromeFavoritesSyncManager = mockk(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -94,6 +96,7 @@ class MusicRepositoryImplTest {
             songRepository = mockSongRepository,
 
             favoritesDao = mockFavoritesDao,
+            navidromeFavoritesSyncManager = mockNavidromeFavoritesSyncManager,
             artistImageRepository = mockArtistImageRepository,
             folderTreeBuilder = mockk(relaxed = true)
         )
