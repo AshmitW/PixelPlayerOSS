@@ -1270,6 +1270,7 @@ fun LibraryScreen(
                                             onMoreOptionsClick = stableOnMoreOptionsClick,
                                             isRefreshing = isRefreshing,
                                             onRefresh = {
+                                                playerViewModel.refreshCloudFavorites(force = true)
                                                 onRefresh()
                                                 favoritePagingItems.refresh()
                                             },
