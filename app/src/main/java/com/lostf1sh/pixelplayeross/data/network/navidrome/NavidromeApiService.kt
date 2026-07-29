@@ -6,6 +6,7 @@ import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeLyricsEntry
 import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeLyricsLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -100,13 +101,15 @@ class NavidromeApiService @Inject constructor(
     fun getServerUrl(): String? = credentials?.normalizedServerUrl
 
     /**
-     * Build a URL with authentication parameters for a Subsonic API endpoint.
+     * Shared base builder for an authenticated Subsonic endpoint URL: server/endpoint,
+     * username, auth params for [method], and the standard client/version/format params.
+     * Both the Map-based and repeated-params request paths append their own extra
+     * parameters onto this.
      */
-    private fun buildApiUrl(
+    private fun baseApiUrlBuilder(
         endpoint: String,
-        extraParams: Map<String, String> = emptyMap(),
-        method: NavidromeAuthMethod = authMethod
-    ): String {
+        method: NavidromeAuthMethod
+    ): HttpUrl.Builder {
         val cred = credentials ?: throw IllegalStateException("No credentials configured")
 
         val baseUrl = "${cred.normalizedServerUrl}/rest/$endpoint.view"
@@ -123,7 +126,38 @@ class NavidromeApiService @Inject constructor(
             .addQueryParameter("c", cred.clientId.ifBlank { DEFAULT_CLIENT_ID })
             .addQueryParameter("f", DEFAULT_FORMAT)
 
+        return urlBuilder
+    }
+
+    /**
+     * Build a URL with authentication parameters for a Subsonic API endpoint.
+     */
+    private fun buildApiUrl(
+        endpoint: String,
+        extraParams: Map<String, String> = emptyMap(),
+        method: NavidromeAuthMethod = authMethod
+    ): String {
+        val urlBuilder = baseApiUrlBuilder(endpoint, method)
+
         extraParams.forEach { (key, value) ->
+            urlBuilder.addQueryParameter(key, value)
+        }
+
+        return urlBuilder.build().toString()
+    }
+
+    /**
+     * Build a URL allowing repeated query keys (e.g. `songId` once per song), which
+     * [Map]-backed [buildApiUrl] cannot express.
+     */
+    private fun buildApiUrlRepeating(
+        endpoint: String,
+        params: List<Pair<String, String>>,
+        method: NavidromeAuthMethod = authMethod
+    ): String {
+        val urlBuilder = baseApiUrlBuilder(endpoint, method)
+
+        params.forEach { (key, value) ->
             urlBuilder.addQueryParameter(key, value)
         }
 
@@ -141,10 +175,24 @@ class NavidromeApiService @Inject constructor(
         endpoint: String,
         params: Map<String, String> = emptyMap(),
         method: NavidromeAuthMethod = authMethod
-    ): Result<String> {
+    ): Result<String> = executeRequest(endpoint, buildApiUrl(endpoint, params, method))
+
+    /**
+     * Make a GET request to a Subsonic API endpoint with repeated query keys.
+     */
+    private suspend fun requestRepeating(
+        endpoint: String,
+        params: List<Pair<String, String>>,
+        method: NavidromeAuthMethod = authMethod
+    ): Result<String> = executeRequest(endpoint, buildApiUrlRepeating(endpoint, params, method))
+
+    /**
+     * Perform the actual GET call and return the raw response body. Shared by [request]
+     * and [requestRepeating] so only the URL construction differs between them.
+     */
+    private suspend fun executeRequest(endpoint: String, url: String): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
-                val url = buildApiUrl(endpoint, params, method)
                 Timber.d("$TAG: >>> GET $endpoint")
 
                 val request = Request.Builder()
@@ -210,15 +258,40 @@ class NavidromeApiService @Inject constructor(
     private suspend fun requestAndParse(endpoint: String, params: Map<String, String> = emptyMap()): Result<JSONObject> {
         val method = authMethod
         val result = requestParsed(endpoint, params, method)
+        return withPasswordAuthFallback(result, method) { requestParsed(endpoint, params, it) }
+    }
 
+    /**
+     * Repeated-params counterpart of [requestAndParse], used by endpoints (e.g.
+     * `createPlaylist`) that need one query key per list element. Participates in the
+     * same token->password auth fallback via [withPasswordAuthFallback].
+     */
+    private suspend fun requestAndParseRepeating(
+        endpoint: String,
+        params: List<Pair<String, String>>
+    ): Result<JSONObject> {
+        val method = authMethod
+        val result = requestRepeatingParsed(endpoint, params, method)
+        return withPasswordAuthFallback(result, method) { requestRepeatingParsed(endpoint, params, it) }
+    }
+
+    /**
+     * Shared fallback step for [requestAndParse]/[requestAndParseRepeating]: if [result]
+     * failed because the server rejected token auth, switch to password auth, notify
+     * [onAuthMethodChanged], and retry once via [retry].
+     */
+    private suspend fun withPasswordAuthFallback(
+        result: Result<JSONObject>,
+        method: NavidromeAuthMethod,
+        retry: suspend (NavidromeAuthMethod) -> Result<JSONObject>
+    ): Result<JSONObject> {
         val error = result.exceptionOrNull()
         if (error is SubsonicApiException && shouldFallBackToPasswordAuth(error, method)) {
             Timber.w("$TAG: Server rejected token auth (${error.message}), retrying with password auth")
             authMethod = NavidromeAuthMethod.PASSWORD
             onAuthMethodChanged?.invoke(NavidromeAuthMethod.PASSWORD)
-            return requestParsed(endpoint, params, NavidromeAuthMethod.PASSWORD)
+            return retry(NavidromeAuthMethod.PASSWORD)
         }
-
         return result
     }
 
@@ -228,6 +301,17 @@ class NavidromeApiService @Inject constructor(
         method: NavidromeAuthMethod
     ): Result<JSONObject> {
         return request(endpoint, params, method).fold(
+            onSuccess = { parseResponse(it) },
+            onFailure = { Result.failure(it) }
+        )
+    }
+
+    private suspend fun requestRepeatingParsed(
+        endpoint: String,
+        params: List<Pair<String, String>>,
+        method: NavidromeAuthMethod
+    ): Result<JSONObject> {
+        return requestRepeating(endpoint, params, method).fold(
             onSuccess = { parseResponse(it) },
             onFailure = { Result.failure(it) }
         )
@@ -370,6 +454,50 @@ class NavidromeApiService @Inject constructor(
             val songList = (0 until songs.length()).mapNotNull { songs.optJSONObject(it) }
             Pair(playlist, songList)
         }
+    }
+
+    // Playlist write API
+
+    /**
+     * Create a new playlist with the given songs and return the server-assigned id.
+     */
+    suspend fun createPlaylist(name: String, songIds: List<String>): Result<String> {
+        val params = buildList {
+            add("name" to name)
+            songIds.forEach { add("songId" to it) }
+        }
+        return requestAndParseRepeating("createPlaylist", params).map { response ->
+            response.optJSONObject("playlist")?.optString("id").orEmpty()
+        }.mapCatching { id ->
+            require(id.isNotBlank()) { "createPlaylist returned no playlist id" }
+            id
+        }
+    }
+
+    /**
+     * Replace the full song list of an existing playlist.
+     * Subsonic's createPlaylist doubles as an update when given a playlistId.
+     */
+    suspend fun replacePlaylistSongs(playlistId: String, songIds: List<String>): Result<Boolean> {
+        val params = buildList {
+            add("playlistId" to playlistId)
+            songIds.forEach { add("songId" to it) }
+        }
+        return requestAndParseRepeating("createPlaylist", params).map { true }
+    }
+
+    /**
+     * Rename a playlist.
+     */
+    suspend fun renamePlaylist(playlistId: String, name: String): Result<Boolean> {
+        return requestAndParse("updatePlaylist", mapOf("playlistId" to playlistId, "name" to name)).map { true }
+    }
+
+    /**
+     * Delete a playlist. Subsonic error 70 (not found) means it's already gone server-side.
+     */
+    suspend fun deletePlaylist(playlistId: String): Result<Boolean> {
+        return requestAndParse("deletePlaylist", mapOf("id" to playlistId)).map { true }
     }
 
     /**
