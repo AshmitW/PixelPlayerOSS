@@ -25,6 +25,8 @@ import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeAuthMethod
 import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeCredentials
 import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeMusicFolder
 import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeSong
+import com.lostf1sh.pixelplayeross.data.navidrome.model.navidromeLyricsToText
+import com.lostf1sh.pixelplayeross.data.navidrome.model.pickBestNavidromeLyrics
 import com.lostf1sh.pixelplayeross.data.network.navidrome.NavidromeApiService
 import com.lostf1sh.pixelplayeross.data.network.navidrome.NavidromeResponseParser
 import com.lostf1sh.pixelplayeross.data.preferences.PlaylistPreferencesRepository
@@ -745,16 +747,20 @@ class NavidromeRepository @Inject constructor(
     suspend fun getLyrics(songId: String): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
-                var result = api.getLyricsBySongId(songId)
-                if (result.isSuccess && !result.getOrNull().isNullOrBlank()) {
-                    return@withContext result
+                val entries = api.getLyricsBySongId(songId).getOrNull()
+                val best = entries?.let { pickBestNavidromeLyrics(it) }
+                if (best != null) {
+                    val text = navidromeLyricsToText(best)
+                    if (text.isNotBlank()) {
+                        return@withContext Result.success(text)
+                    }
                 }
 
                 val songEntity = dao.getSongByNavidromeId(songId)
                 if (songEntity != null) {
-                    result = api.getLyrics(songEntity.artist, songEntity.title)
-                    if (result.isSuccess && !result.getOrNull().isNullOrBlank()) {
-                        return@withContext result
+                    val legacy = api.getLyrics(songEntity.artist, songEntity.title)
+                    if (legacy.isSuccess && !legacy.getOrNull().isNullOrBlank()) {
+                        return@withContext legacy
                     }
                 }
 

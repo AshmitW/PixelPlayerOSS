@@ -33,6 +33,7 @@ import com.lostf1sh.pixelplayeross.data.preferences.PlaylistPreferencesRepositor
 import com.lostf1sh.pixelplayeross.data.preferences.dataStore
 import com.lostf1sh.pixelplayeross.data.media.SongMetadataEditor
 import com.lostf1sh.pixelplayeross.data.navidrome.NavidromeFavoritesSyncManager
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromeRepository
 import com.lostf1sh.pixelplayeross.data.network.deezer.DeezerApiService
 import com.lostf1sh.pixelplayeross.data.network.lyrics.LrcLibApiService
 import com.lostf1sh.pixelplayeross.data.repository.ArtistImageRepository
@@ -228,14 +229,16 @@ object AppModule {
         lrcLibApiService: LrcLibApiService,
         lyricsDao: LyricsDao,
         okHttpClient: OkHttpClient,
-        userPreferencesRepository: UserPreferencesRepository
+        userPreferencesRepository: UserPreferencesRepository,
+        navidromeRepository: NavidromeRepository
     ): LyricsRepository {
         return LyricsRepositoryImpl(
             context = context,
             lrcLibApiService = lrcLibApiService,
             lyricsDao = lyricsDao,
             okHttpClient = okHttpClient,
-            userPreferencesRepository = userPreferencesRepository
+            userPreferencesRepository = userPreferencesRepository,
+            navidromeRepository = navidromeRepository
         )
     }
 

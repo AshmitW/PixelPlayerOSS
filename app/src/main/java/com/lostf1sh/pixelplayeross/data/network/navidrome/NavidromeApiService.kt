@@ -2,6 +2,8 @@ package com.lostf1sh.pixelplayeross.data.network.navidrome
 
 import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeAuthMethod
 import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeCredentials
+import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeLyricsEntry
+import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeLyricsLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -503,16 +505,25 @@ class NavidromeApiService @Inject constructor(
     /**
      * Get lyrics by song ID (OpenSubsonic extension, supported by Navidrome).
      */
-    suspend fun getLyricsBySongId(songId: String): Result<String> {
+    suspend fun getLyricsBySongId(songId: String): Result<List<NavidromeLyricsEntry>> {
         return requestAndParse("getLyricsBySongId", mapOf("id" to songId)).map { response ->
-            val lyrics = response.optJSONObject("lyricsList")?.optJSONArray("structuredLyrics")
-                ?.optJSONObject(0)?.optJSONArray("line")
-
-            if (lyrics != null && lyrics.length() > 0) {
-                (0 until lyrics.length()).mapNotNull { lyrics.optJSONObject(it)?.optString("value") }
-                    .joinToString("\n")
-            } else {
-                ""
+            val structured = response.optJSONObject("lyricsList")?.optJSONArray("structuredLyrics")
+                ?: return@map emptyList()
+            (0 until structured.length()).mapNotNull { index ->
+                val entry = structured.optJSONObject(index) ?: return@mapNotNull null
+                val lineArray = entry.optJSONArray("line") ?: return@mapNotNull null
+                val lines = (0 until lineArray.length()).mapNotNull { lineIndex ->
+                    val line = lineArray.optJSONObject(lineIndex) ?: return@mapNotNull null
+                    NavidromeLyricsLine(
+                        startMs = if (line.has("start")) line.optLong("start") else null,
+                        value = line.optString("value", "")
+                    )
+                }
+                NavidromeLyricsEntry(
+                    synced = entry.optBoolean("synced", false),
+                    offsetMs = entry.optLong("offset", 0L),
+                    lines = lines
+                )
             }
         }
     }
