@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 
 /**
@@ -39,6 +41,8 @@ class NavidromePlaylistSyncManager @Inject constructor(
         private const val SONG_ID_CHUNK_SIZE = 900
     }
 
+    private val drainMutex = Mutex()
+
     suspend fun markDirtyAndSchedule(playlistId: String) {
         localPlaylistDao.setNavidromeSyncFlags(playlistId, dirty = true, pendingCreate = false)
         schedulePush()
@@ -53,8 +57,8 @@ class NavidromePlaylistSyncManager @Inject constructor(
     }
 
     /** Order: deletes, creates, dirty pushes. Returns true when everything pending was delivered. */
-    suspend fun drainPendingPlaylistOps(): Boolean {
-        if (!api.hasCredentials()) return true
+    suspend fun drainPendingPlaylistOps(): Boolean = drainMutex.withLock {
+        if (!api.hasCredentials()) return@withLock true
         var drained = true
 
         navidromeDao.getPendingPlaylistDeletesOnce().forEach { op ->
@@ -78,7 +82,7 @@ class NavidromePlaylistSyncManager @Inject constructor(
             val delivered = if (entity.navidromePendingCreate) pushCreate(entity) else pushDirty(entity)
             if (!delivered) drained = false
         }
-        return drained
+        drained
     }
 
     private suspend fun pushCreate(entity: PlaylistEntity): Boolean {
