@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.ColumnInfo
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.lostf1sh.pixelplayeross.utils.AudioMeta
 import kotlinx.coroutines.flow.Flow
@@ -92,6 +93,11 @@ data class DeviceCapabilitySongRow(
     val bitrate: Int?,
     val sampleRate: Int?,
     val sourceType: Int
+)
+
+data class SongIdUri(
+    @ColumnInfo(name = "id") val id: Long,
+    @ColumnInfo(name = "content_uri_string") val contentUriString: String
 )
 
 @Dao
@@ -1846,6 +1852,9 @@ interface MusicDao {
 
     @Query("SELECT content_uri_string FROM songs WHERE id = :id")
     suspend fun getContentUriStringOnce(id: Long): String?
+
+    @Query("SELECT id, content_uri_string FROM songs WHERE id IN (:ids)")
+    suspend fun getSongIdUris(ids: List<Long>): List<SongIdUri>
 
     companion object {
         /**
