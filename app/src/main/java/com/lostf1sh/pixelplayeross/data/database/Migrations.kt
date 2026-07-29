@@ -72,3 +72,30 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         )
     }
 }
+
+/**
+ * v3 -> v4: sync-state columns + delete tombstones for two-way Navidrome playlist sync.
+ *
+ * `playlists.navidrome_dirty` / `navidrome_pending_create` are annotated with
+ * `@ColumnInfo(defaultValue = "0")` so the Room-generated expected schema records the same
+ * default that the ALTER's `DEFAULT 0` clause writes into sqlite_master — unlike the v2->v3
+ * outbox table (a brand-new CREATE TABLE with no SQL default at all), an ALTER TABLE ADD COLUMN
+ * on a NOT NULL column requires a SQL default, so the entity annotation must agree or Room's
+ * runtime schema validation sees a mismatched TableInfo.
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.addColumnIfMissing("playlists", "navidrome_dirty", "`navidrome_dirty` INTEGER NOT NULL DEFAULT 0")
+        db.addColumnIfMissing("playlists", "navidrome_pending_create", "`navidrome_pending_create` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            """
+                CREATE TABLE IF NOT EXISTS `navidrome_pending_playlist_deletes` (
+                    `serverId` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `attempts` INTEGER NOT NULL,
+                    PRIMARY KEY(`serverId`)
+                )
+            """.trimIndent()
+        )
+    }
+}

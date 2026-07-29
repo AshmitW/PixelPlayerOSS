@@ -22,10 +22,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NavidromeSongEntity::class,
         NavidromePlaylistEntity::class,
         NavidromePendingFavoriteEntity::class,
+        NavidromePendingPlaylistDeleteEntity::class,
         JellyfinSongEntity::class,
         JellyfinPlaylistEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class PixelPlayerDatabase : RoomDatabase() {

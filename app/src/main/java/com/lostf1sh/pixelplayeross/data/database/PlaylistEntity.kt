@@ -42,6 +42,10 @@ data class PlaylistEntity(
     val coverShapeDetail4: Float? = null,
     @ColumnInfo(name = "source")
     val source: String = "LOCAL",
+    @ColumnInfo(name = "navidrome_dirty", defaultValue = "0")
+    val navidromeDirty: Boolean = false,
+    @ColumnInfo(name = "navidrome_pending_create", defaultValue = "0")
+    val navidromePendingCreate: Boolean = false,
 )
 
 fun PlaylistEntity.toPlaylist(songIds: List<String>): Playlist {
@@ -61,6 +65,8 @@ fun PlaylistEntity.toPlaylist(songIds: List<String>): Playlist {
         coverShapeDetail3 = coverShapeDetail3,
         coverShapeDetail4 = coverShapeDetail4,
         source = source,
+        navidromeDirty = navidromeDirty,
+        navidromePendingCreate = navidromePendingCreate,
     )
 }
 
@@ -80,5 +86,7 @@ fun Playlist.toEntity(): PlaylistEntity {
         coverShapeDetail3 = coverShapeDetail3,
         coverShapeDetail4 = coverShapeDetail4,
         source = source,
+        navidromeDirty = navidromeDirty,
+        navidromePendingCreate = navidromePendingCreate,
     )
 }

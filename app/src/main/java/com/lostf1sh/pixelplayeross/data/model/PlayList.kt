@@ -21,7 +21,9 @@ data class Playlist(
     val coverShapeDetail2: Float? = null,
     val coverShapeDetail3: Float? = null,
     val coverShapeDetail4: Float? = null,
-    val source: String = "LOCAL"
+    val source: String = "LOCAL",
+    val navidromeDirty: Boolean = false,
+    val navidromePendingCreate: Boolean = false
 )
 
 enum class PlaylistShapeType {

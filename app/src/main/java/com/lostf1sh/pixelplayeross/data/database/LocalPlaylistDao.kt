@@ -71,4 +71,25 @@ interface LocalPlaylistDao {
             replacePlaylistSongs(entity.id, songIds)
         }
     }
+
+    @Query("SELECT * FROM playlist_songs WHERE playlist_id = :playlistId ORDER BY sort_order ASC")
+    suspend fun getPlaylistSongsOnce(playlistId: String): List<PlaylistSongEntity>
+
+    @Query("UPDATE playlists SET navidrome_dirty = :dirty, navidrome_pending_create = :pendingCreate WHERE id = :playlistId")
+    suspend fun setNavidromeSyncFlags(playlistId: String, dirty: Boolean, pendingCreate: Boolean)
+
+    @Query("SELECT * FROM playlists WHERE source = 'NAVIDROME' AND (navidrome_dirty = 1 OR navidrome_pending_create = 1)")
+    suspend fun getDirtyNavidromePlaylistsOnce(): List<PlaylistEntity>
+
+    @Query("UPDATE playlists SET id = :newId WHERE id = :oldId")
+    suspend fun updatePlaylistId(oldId: String, newId: String)
+
+    @Query("UPDATE playlist_songs SET playlist_id = :newId WHERE playlist_id = :oldId")
+    suspend fun updatePlaylistSongsPlaylistId(oldId: String, newId: String)
+
+    @Transaction
+    suspend fun rekeyPlaylist(oldId: String, newId: String) {
+        updatePlaylistId(oldId, newId)
+        updatePlaylistSongsPlaylistId(oldId, newId)
+    }
 }

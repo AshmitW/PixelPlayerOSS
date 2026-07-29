@@ -105,4 +105,21 @@ interface NavidromeDao {
 
     @Query("DELETE FROM navidrome_pending_favorites")
     suspend fun clearPendingFavorites()
+
+    // ─── Pending playlist delete ops (tombstones) ────────────────────────
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPendingPlaylistDelete(op: NavidromePendingPlaylistDeleteEntity)
+
+    @Query("SELECT * FROM navidrome_pending_playlist_deletes ORDER BY createdAt")
+    suspend fun getPendingPlaylistDeletesOnce(): List<NavidromePendingPlaylistDeleteEntity>
+
+    @Query("DELETE FROM navidrome_pending_playlist_deletes WHERE serverId = :serverId")
+    suspend fun deletePendingPlaylistDelete(serverId: String)
+
+    @Query("UPDATE navidrome_pending_playlist_deletes SET attempts = attempts + 1 WHERE serverId = :serverId")
+    suspend fun incrementPendingPlaylistDeleteAttempts(serverId: String)
+
+    @Query("DELETE FROM navidrome_pending_playlist_deletes")
+    suspend fun clearPendingPlaylistDeletes()
 }
