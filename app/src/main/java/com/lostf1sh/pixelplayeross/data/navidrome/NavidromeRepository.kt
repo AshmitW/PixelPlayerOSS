@@ -368,6 +368,7 @@ class NavidromeRepository @Inject constructor(
                             // deleting so the next drain pushes it back under a new server id.
                             Timber.d("$TAG: Stale playlist ${stale.id} has unpushed local changes, flagging for recreate instead of deleting")
                             localPlaylistDao.setNavidromeSyncFlags(appPlaylistId, dirty = true, pendingCreate = true)
+                            playlistSyncManager.schedulePush()
                         } else {
                             dao.deleteSongsByPlaylist(stale.id)
                             dao.deletePlaylist(stale.id)
@@ -1087,7 +1088,7 @@ class NavidromeRepository @Inject constructor(
             }
 
             if (existingPlaylist != null) {
-                playlistPreferencesRepository.updatePlaylistFromSync(
+                val applied = playlistPreferencesRepository.updatePlaylistFromSync(
                     existingPlaylist.copy(
                         name = playlistName,
                         songIds = unifiedSongIds,
@@ -1095,7 +1096,11 @@ class NavidromeRepository @Inject constructor(
                         source = "NAVIDROME"
                     )
                 )
-                Timber.d("$TAG: Updated app playlist for Navidrome playlist $navidromePlaylistId")
+                if (applied) {
+                    Timber.d("$TAG: Updated app playlist for Navidrome playlist $navidromePlaylistId")
+                } else {
+                    Timber.d("$TAG: Skipped sync overwrite for $navidromePlaylistId, local mirror became dirty before the write")
+                }
             } else {
                 playlistPreferencesRepository.createPlaylist(
                     name = playlistName,

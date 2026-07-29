@@ -6,10 +6,12 @@ import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeLyricsEntry
 import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeLyricsLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import org.json.JSONObject
 import timber.log.Timber
 import java.security.MessageDigest
@@ -147,24 +149,6 @@ class NavidromeApiService @Inject constructor(
     }
 
     /**
-     * Build a URL allowing repeated query keys (e.g. `songId` once per song), which
-     * [Map]-backed [buildApiUrl] cannot express.
-     */
-    private fun buildApiUrlRepeating(
-        endpoint: String,
-        params: List<Pair<String, String>>,
-        method: NavidromeAuthMethod = authMethod
-    ): String {
-        val urlBuilder = baseApiUrlBuilder(endpoint, method)
-
-        params.forEach { (key, value) ->
-            urlBuilder.addQueryParameter(key, value)
-        }
-
-        return urlBuilder.build().toString()
-    }
-
-    /**
      * Make a GET request to a Subsonic API endpoint.
      *
      * @param endpoint The API endpoint name (without .view suffix)
@@ -178,44 +162,58 @@ class NavidromeApiService @Inject constructor(
     ): Result<String> = executeRequest(endpoint, buildApiUrl(endpoint, params, method))
 
     /**
-     * Make a GET request to a Subsonic API endpoint with repeated query keys.
+     * Make a POST request to a Subsonic API endpoint with repeated form keys (e.g.
+     * `songId` once per song). Sent as POST with a form body rather than GET with a
+     * repeated query string: large playlists can carry hundreds of song ids, which
+     * would otherwise blow past practical URL-length limits. The Subsonic spec
+     * requires servers to accept POST with form-encoded params; Navidrome does. Only
+     * the endpoint/base/auth params travel in the URL (via [baseApiUrlBuilder]) -
+     * the endpoint-specific params go in the form body instead.
      */
     private suspend fun requestRepeating(
         endpoint: String,
         params: List<Pair<String, String>>,
         method: NavidromeAuthMethod = authMethod
-    ): Result<String> = executeRequest(endpoint, buildApiUrlRepeating(endpoint, params, method))
+    ): Result<String> {
+        val url = baseApiUrlBuilder(endpoint, method).build().toString()
+        val formBody = FormBody.Builder().apply {
+            params.forEach { (key, value) -> add(key, value) }
+        }.build()
+        return executeRequest(endpoint, url, formBody)
+    }
 
     /**
-     * Perform the actual GET call and return the raw response body. Shared by [request]
-     * and [requestRepeating] so only the URL construction differs between them.
+     * Perform the actual HTTP call and return the raw response body. Shared by
+     * [request] (GET, `body == null`) and [requestRepeating] (POST with a form body)
+     * so only the URL/body construction differs between them.
      */
-    private suspend fun executeRequest(endpoint: String, url: String): Result<String> {
+    private suspend fun executeRequest(endpoint: String, url: String, body: RequestBody? = null): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
-                Timber.d("$TAG: >>> GET $endpoint")
+                val httpMethod = if (body != null) "POST" else "GET"
+                Timber.d("$TAG: >>> $httpMethod $endpoint")
 
-                val request = Request.Builder()
+                val requestBuilder = Request.Builder()
                     .url(url)
                     .header("Accept", "application/json")
                     .header("User-Agent", "PixelPlayerOSS/${API_VERSION}")
-                    .get()
-                    .build()
 
-                okHttpClient.newCall(request).execute().use { response ->
+                if (body != null) requestBuilder.post(body) else requestBuilder.get()
+
+                okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                     val code = response.code
-                    val body = response.body.string()
+                    val responseBody = response.body.string()
 
                     if (!response.isSuccessful) {
                         Timber.w("$TAG: <<< HTTP $code for $endpoint")
                         return@withContext Result.failure(Exception("HTTP $code: ${response.message}"))
                     }
 
-                    Timber.d("$TAG: <<< HTTP $code for $endpoint, body length: ${body.length}")
-                    Result.success(body)
+                    Timber.d("$TAG: <<< HTTP $code for $endpoint, body length: ${responseBody.length}")
+                    Result.success(responseBody)
                 }
             } catch (e: Exception) {
-                Timber.e(e, "$TAG: !!! FAILED GET $endpoint")
+                Timber.e(e, "$TAG: !!! FAILED ${if (body != null) "POST" else "GET"} $endpoint")
                 Result.failure(e)
             }
         }

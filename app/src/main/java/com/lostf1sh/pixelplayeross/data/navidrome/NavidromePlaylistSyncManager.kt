@@ -11,6 +11,7 @@ import com.lostf1sh.pixelplayeross.data.database.MusicDao
 import com.lostf1sh.pixelplayeross.data.database.NavidromeDao
 import com.lostf1sh.pixelplayeross.data.database.PlaylistEntity
 import com.lostf1sh.pixelplayeross.data.network.navidrome.NavidromeApiService
+import com.lostf1sh.pixelplayeross.data.network.navidrome.SubsonicApiException
 import com.lostf1sh.pixelplayeross.data.worker.NavidromePlaylistPushWorker
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -44,7 +45,9 @@ class NavidromePlaylistSyncManager @Inject constructor(
     private val drainMutex = Mutex()
 
     suspend fun markDirtyAndSchedule(playlistId: String) {
-        localPlaylistDao.setNavidromeSyncFlags(playlistId, dirty = true, pendingCreate = false)
+        // Only flip the dirty bit here; a create still pending must stay pending
+        // (see setNavidromeSyncFlags, which would otherwise clobber it).
+        localPlaylistDao.markNavidromeDirty(playlistId)
         schedulePush()
     }
 
@@ -53,7 +56,9 @@ class NavidromePlaylistSyncManager @Inject constructor(
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        workManager.enqueueUniqueWork(PUSH_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        // APPEND_OR_REPLACE: an in-flight drain must never be cancelled mid-create;
+        // a follow-up run is appended instead of replacing it.
+        workManager.enqueueUniqueWork(PUSH_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
     /** Order: deletes, creates, dirty pushes. Returns true when everything pending was delivered. */
@@ -63,7 +68,7 @@ class NavidromePlaylistSyncManager @Inject constructor(
 
         navidromeDao.getPendingPlaylistDeletesOnce().forEach { op ->
             val result = api.deletePlaylist(op.serverId)
-            val notFound = result.exceptionOrNull()?.message?.contains("API Error 70") == true
+            val notFound = (result.exceptionOrNull() as? SubsonicApiException)?.code == 70
             when {
                 result.isSuccess || notFound -> navidromeDao.deletePendingPlaylistDelete(op.serverId)
                 op.attempts + 1 >= MAX_DELETE_ATTEMPTS -> {
@@ -79,7 +84,11 @@ class NavidromePlaylistSyncManager @Inject constructor(
         }
 
         localPlaylistDao.getDirtyNavidromePlaylistsOnce().forEach { entity ->
-            val delivered = if (entity.navidromePendingCreate) pushCreate(entity) else pushDirty(entity)
+            // Route by both signals: the pendingCreate flag and the id prefix, since a
+            // dirty-marking write that only updates the dirty bit must not be able to
+            // erase pendingCreate and misroute a still-uncreated playlist into pushDirty.
+            val isPendingCreate = entity.navidromePendingCreate || entity.id.startsWith(PENDING_CREATE_PREFIX)
+            val delivered = if (isPendingCreate) pushCreate(entity) else pushDirty(entity)
             if (!delivered) drained = false
         }
         drained
@@ -113,7 +122,9 @@ class NavidromePlaylistSyncManager @Inject constructor(
             return false
         }
         val cachedName = navidromeDao.getPlaylistById(serverId)?.name
-        if (cachedName != null && cachedName != entity.name) {
+        // A missing cache row must not silently drop the rename: only skip when the
+        // cached name is known AND already matches, otherwise send it (idempotent).
+        if (cachedName != entity.name) {
             val rename = api.renamePlaylist(serverId, entity.name)
             if (rename.isFailure) {
                 rethrowIfCancellation(rename.exceptionOrNull())

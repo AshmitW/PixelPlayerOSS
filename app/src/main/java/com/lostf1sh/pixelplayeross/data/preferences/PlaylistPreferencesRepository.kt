@@ -86,11 +86,17 @@ class PlaylistPreferencesRepository @Inject constructor(
     /**
      * Writes a playlist pulled from the server. Never marks the mirror dirty
      * and always clears sync flags, so this cannot itself re-trigger a push.
+     *
+     * The check-and-write happens atomically in [LocalPlaylistDao.applySyncUpdateIfClean]
+     * so a push racing this call can't slip in between an earlier dirty check and this
+     * write. Returns false (and skips the write) if the mirror has unpushed local edits.
      */
-    suspend fun updatePlaylistFromSync(playlist: Playlist) {
+    suspend fun updatePlaylistFromSync(playlist: Playlist): Boolean {
         ensureMigratedIfNeeded()
-        localPlaylistDao.upsertPlaylist(playlist.toEntity().copy(navidromeDirty = false, navidromePendingCreate = false))
-        localPlaylistDao.replacePlaylistSongs(playlist.id, playlist.songIds)
+        return localPlaylistDao.applySyncUpdateIfClean(
+            playlist.toEntity().copy(navidromeDirty = false, navidromePendingCreate = false),
+            playlist.songIds
+        )
     }
 
     suspend fun deletePlaylist(playlistId: String) {

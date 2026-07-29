@@ -78,6 +78,9 @@ interface LocalPlaylistDao {
     @Query("UPDATE playlists SET navidrome_dirty = :dirty, navidrome_pending_create = :pendingCreate WHERE id = :playlistId")
     suspend fun setNavidromeSyncFlags(playlistId: String, dirty: Boolean, pendingCreate: Boolean)
 
+    @Query("UPDATE playlists SET navidrome_dirty = 1 WHERE id = :playlistId")
+    suspend fun markNavidromeDirty(playlistId: String)
+
     @Query("SELECT * FROM playlists WHERE source = 'NAVIDROME' AND (navidrome_dirty = 1 OR navidrome_pending_create = 1)")
     suspend fun getDirtyNavidromePlaylistsOnce(): List<PlaylistEntity>
 
@@ -94,5 +97,19 @@ interface LocalPlaylistDao {
     suspend fun rekeyPlaylist(oldId: String, newId: String) {
         updatePlaylistId(oldId, newId)
         updatePlaylistSongsPlaylistId(oldId, newId)
+    }
+
+    /**
+     * Applies a server-sourced playlist update only if no local edit is pending push.
+     * Read-then-write inside one transaction so a push racing this sync can't slip in
+     * between the check and the overwrite. Returns false when the write was skipped.
+     */
+    @Transaction
+    suspend fun applySyncUpdateIfClean(entity: PlaylistEntity, songIds: List<String>): Boolean {
+        val current = getPlaylistById(entity.id)
+        if (current != null && (current.navidromeDirty || current.navidromePendingCreate)) return false
+        upsertPlaylist(entity)
+        replacePlaylistSongs(entity.id, songIds)
+        return true
     }
 }

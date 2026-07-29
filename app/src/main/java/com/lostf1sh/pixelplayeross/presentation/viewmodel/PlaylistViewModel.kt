@@ -309,8 +309,26 @@ class PlaylistViewModel @Inject constructor(
                 songIds
             }
 
+            // Closes the creation wizard's async-check race at the durable layer: the
+            // wizard may have OK'd sync before the user's last edit to the song list,
+            // so re-verify synchronously here that every candidate song is actually
+            // Navidrome-sourced before a pending-create row is ever written.
+            var effectiveSyncToNavidrome = syncToNavidrome
+            if (effectiveSyncToNavidrome && resolvedSmartRule == null && resolvedSongIds.isNotEmpty()) {
+                val longIds = resolvedSongIds.mapNotNull { it.toLongOrNull() }
+                val uriById = longIds.chunked(NAVIDROME_SONG_CHUNK_SIZE)
+                    .flatMap { musicDao.getSongIdUris(it) }
+                    .associate { it.id.toString() to it.contentUriString }
+                val allNavidrome = resolvedSongIds.all { id ->
+                    uriById[id]?.startsWith(NAVIDROME_URI_SCHEME) == true
+                }
+                if (!allNavidrome) {
+                    effectiveSyncToNavidrome = false
+                }
+            }
+
             val shouldCreateOnNavidrome =
-                syncToNavidrome && navidromeRepository.isLoggedIn && resolvedSmartRule == null
+                effectiveSyncToNavidrome && navidromeRepository.isLoggedIn && resolvedSmartRule == null
 
             val resolvedSource = when {
                 resolvedSmartRule != null -> resolvedSmartRule.toPlaylistSource()
@@ -939,10 +957,17 @@ class PlaylistViewModel @Inject constructor(
      */
     fun deletePlaylistsInBatch(playlistIds: List<String>) {
         viewModelScope.launch {
-            val allPlaylists = _uiState.value.playlists
+            val uiPlaylists = _uiState.value.playlists
+            // Same fallback as the single-delete path: unloaded UI state must not
+            // cause a server-backed playlist to be resolved as null and deleted
+            // locally-only instead of being routed through the Navidrome outbox.
+            var persistedPlaylists: List<Playlist>? = null
             playlistIds.forEach { playlistId ->
                 if (!isFolderPlaylistId(playlistId)) {
-                    val playlist = allPlaylists.find { it.id == playlistId }
+                    val playlist = uiPlaylists.find { it.id == playlistId }
+                        ?: (persistedPlaylists ?: playlistPreferencesRepository.getPlaylistsOnce()
+                            .also { persistedPlaylists = it })
+                            .find { it.id == playlistId }
                     deletePlaylistRouted(playlistId, playlist)
                 }
             }
