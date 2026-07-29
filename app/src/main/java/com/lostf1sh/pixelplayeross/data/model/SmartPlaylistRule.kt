@@ -52,3 +52,6 @@ fun isSmartPlaylistSource(source: String): Boolean =
 
 val Playlist.isSmartPlaylist: Boolean
     get() = isSmartPlaylistSource(source)
+
+val Playlist.isNavidromeBacked: Boolean
+    get() = source == "NAVIDROME"

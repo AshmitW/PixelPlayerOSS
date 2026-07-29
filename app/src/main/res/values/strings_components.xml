@@ -172,6 +172,7 @@
     <string name="playlist_songs_added_toast">Songs added to playlists</string>
     <string name="playlist_created_songs_added_toast">Playlist created and songs added</string>
     <string name="playlist_saved_toast">Saved</string>
+    <string name="playlist_navidrome_local_songs_blocked">Local songs can\'t be added to a server playlist. Create a local playlist to mix local and server songs.</string>
     <string name="folder_state_excluded">Excluded</string>
     <string name="folder_state_included">Included</string>
 </resources>

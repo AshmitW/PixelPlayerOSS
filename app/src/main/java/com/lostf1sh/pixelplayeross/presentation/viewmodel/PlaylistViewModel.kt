@@ -6,13 +6,17 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lostf1sh.pixelplayeross.data.DailyMixManager
+import com.lostf1sh.pixelplayeross.data.database.MusicDao
 import com.lostf1sh.pixelplayeross.data.model.Playlist
 import com.lostf1sh.pixelplayeross.data.model.SmartPlaylistRule
 import com.lostf1sh.pixelplayeross.data.model.Song
 import com.lostf1sh.pixelplayeross.data.model.SortOption
 import com.lostf1sh.pixelplayeross.data.model.fromPlaylistSource
+import com.lostf1sh.pixelplayeross.data.model.isNavidromeBacked
 import com.lostf1sh.pixelplayeross.data.model.isSmartPlaylist
 import com.lostf1sh.pixelplayeross.data.model.toPlaylistSource
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromePlaylistSyncManager
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromeRepository
 import com.lostf1sh.pixelplayeross.data.playlist.M3uManager
 import com.lostf1sh.pixelplayeross.data.playlist.SmartPlaylistBuilder
 import com.lostf1sh.pixelplayeross.data.preferences.PlaylistPreferencesRepository
@@ -71,8 +75,11 @@ sealed class PlaylistSongsOrderMode {
 class PlaylistViewModel @Inject constructor(
     private val playlistPreferencesRepository: PlaylistPreferencesRepository,
     private val musicRepository: MusicRepository,
+    private val musicDao: MusicDao,
     private val dailyMixManager: DailyMixManager,
     private val m3uManager: M3uManager,
+    private val navidromeRepository: NavidromeRepository,
+    private val playlistSyncManager: NavidromePlaylistSyncManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -89,6 +96,8 @@ class PlaylistViewModel @Inject constructor(
         const val FOLDER_PLAYLIST_PREFIX = "folder_playlist:"
         private const val MANUAL_ORDER_MODE = "manual"
         private const val SMART_PLAYLIST_MAX_ITEMS = 100
+        private const val NAVIDROME_URI_SCHEME = "navidrome://"
+        private const val NAVIDROME_SONG_CHUNK_SIZE = 900
 
         fun sanitizeFileName(name: String): String {
             val sanitized = name.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").trim('_')
@@ -273,7 +282,8 @@ class PlaylistViewModel @Inject constructor(
         coverShapeDetail3: Float? = null,
         coverShapeDetail4: Float? = null,
         source: String = "LOCAL",
-        smartRuleKey: String? = null
+        smartRuleKey: String? = null,
+        syncToNavidrome: Boolean = false
     ) {
         viewModelScope.launch {
             var savedCoverPath: String? = null
@@ -298,7 +308,15 @@ class PlaylistViewModel @Inject constructor(
             } else {
                 songIds
             }
-            val resolvedSource = resolvedSmartRule?.toPlaylistSource() ?: source
+
+            val shouldCreateOnNavidrome =
+                syncToNavidrome && navidromeRepository.isLoggedIn && resolvedSmartRule == null
+
+            val resolvedSource = when {
+                resolvedSmartRule != null -> resolvedSmartRule.toPlaylistSource()
+                shouldCreateOnNavidrome -> "NAVIDROME"
+                else -> source
+            }
 
             playlistPreferencesRepository.createPlaylist(
                 name = name,
@@ -312,8 +330,17 @@ class PlaylistViewModel @Inject constructor(
                 coverShapeDetail2 = coverShapeDetail2,
                 coverShapeDetail3 = coverShapeDetail3,
                 coverShapeDetail4 = coverShapeDetail4,
-                source = resolvedSource
+                customId = if (shouldCreateOnNavidrome) {
+                    NavidromePlaylistSyncManager.PENDING_CREATE_PREFIX + UUID.randomUUID()
+                } else {
+                    null
+                },
+                source = resolvedSource,
+                pendingCreate = shouldCreateOnNavidrome
             )
+            if (shouldCreateOnNavidrome) {
+                playlistSyncManager.schedulePush()
+            }
             _playlistCreationEvent.emit(true)
         }
     }
@@ -433,6 +460,26 @@ class PlaylistViewModel @Inject constructor(
     fun deletePlaylist(playlistId: String) {
         if (isFolderPlaylistId(playlistId)) return
         viewModelScope.launch {
+            val playlist = _uiState.value.playlists.find { it.id == playlistId }
+                ?: playlistPreferencesRepository.getPlaylistsOnce().find { it.id == playlistId }
+            deletePlaylistRouted(playlistId, playlist)
+        }
+    }
+
+    /**
+     * Routes a delete to the Navidrome outbox for server-backed playlists that
+     * already exist on the server; everything else (local, smart, or a
+     * still-pending-create Navidrome playlist that never reached the server)
+     * is just removed locally.
+     */
+    private suspend fun deletePlaylistRouted(playlistId: String, playlist: Playlist?) {
+        if (playlist != null && playlist.isNavidromeBacked &&
+            playlistId.startsWith(NavidromePlaylistSyncManager.SERVER_PREFIX)
+        ) {
+            navidromeRepository.deletePlaylistEverywhere(
+                playlistId.removePrefix(NavidromePlaylistSyncManager.SERVER_PREFIX)
+            )
+        } else {
             playlistPreferencesRepository.deletePlaylist(playlistId)
         }
     }
@@ -557,7 +604,12 @@ class PlaylistViewModel @Inject constructor(
     fun addSongsToPlaylist(playlistId: String, songIdsToAdd: List<String>) {
         if (isFolderPlaylistId(playlistId)) return
         viewModelScope.launch {
-            if (playlistPreferencesRepository.getPlaylistsOnce().any { it.id == playlistId && it.isSmartPlaylist }) {
+            val playlists = playlistPreferencesRepository.getPlaylistsOnce()
+            if (playlists.any { it.id == playlistId && it.isSmartPlaylist }) {
+                return@launch
+            }
+            if (hasNonNavidromeSongsForNavidromePlaylist(playlistId, songIdsToAdd, playlists)) {
+                showNavidromeLocalSongsBlockedToast()
                 return@launch
             }
             playlistPreferencesRepository.addSongsToPlaylist(playlistId, songIdsToAdd)
@@ -576,11 +628,25 @@ class PlaylistViewModel @Inject constructor(
         currentPlaylistId: String?
     ) {
         viewModelScope.launch {
-            val smartPlaylistIds = playlistPreferencesRepository.getPlaylistsOnce()
-                .filter { it.isSmartPlaylist }
-                .map { it.id }
-                .toSet()
-            val editablePlaylistIds = playlistIds.filterNot { it in smartPlaylistIds }
+            val allPlaylists = playlistPreferencesRepository.getPlaylistsOnce()
+            val smartPlaylistIds = allPlaylists.filter { it.isSmartPlaylist }.map { it.id }.toSet()
+
+            // Removals are never blocked; only playlists where this song would
+            // newly be added are checked against the Navidrome-songs-only rule.
+            var blockedAnAdd = false
+            val editablePlaylistIds = mutableListOf<String>()
+            for (id in playlistIds) {
+                if (id in smartPlaylistIds) continue
+                val playlist = allPlaylists.find { it.id == id }
+                val isAdd = playlist != null && songId !in playlist.songIds
+                if (isAdd && hasNonNavidromeSongsForNavidromePlaylist(id, listOf(songId), allPlaylists)) {
+                    blockedAnAdd = true
+                    continue
+                }
+                editablePlaylistIds.add(id)
+            }
+            if (blockedAnAdd) showNavidromeLocalSongsBlockedToast()
+
             val removedFromPlaylists =
                 playlistPreferencesRepository.addOrRemoveSongFromPlaylists(songId, editablePlaylistIds)
             if (currentPlaylistId != null && removedFromPlaylists.contains (currentPlaylistId)) {
@@ -591,14 +657,47 @@ class PlaylistViewModel @Inject constructor(
 
     fun addSongsToPlaylists(songIds: List<String>, playlistIds: List<String>) {
         viewModelScope.launch {
-            val smartPlaylistIds = playlistPreferencesRepository.getPlaylistsOnce()
-                .filter { it.isSmartPlaylist }
-                .map { it.id }
-                .toSet()
+            val allPlaylists = playlistPreferencesRepository.getPlaylistsOnce()
+            val smartPlaylistIds = allPlaylists.filter { it.isSmartPlaylist }.map { it.id }.toSet()
+            var blockedAnAdd = false
             playlistIds.filterNot { it in smartPlaylistIds }.forEach { playlistId ->
+                if (hasNonNavidromeSongsForNavidromePlaylist(playlistId, songIds, allPlaylists)) {
+                    blockedAnAdd = true
+                    return@forEach
+                }
                 playlistPreferencesRepository.addSongsToPlaylist(playlistId, songIds)
             }
+            if (blockedAnAdd) showNavidromeLocalSongsBlockedToast()
         }
+    }
+
+    /**
+     * True when [playlistId] is Navidrome-backed and any of [songIds] does not
+     * resolve to a `navidrome://` song. Guards the ADD direction only; removing
+     * songs from a server playlist is always allowed.
+     */
+    private suspend fun hasNonNavidromeSongsForNavidromePlaylist(
+        playlistId: String,
+        songIds: List<String>,
+        playlists: List<Playlist>
+    ): Boolean {
+        val playlist = playlists.find { it.id == playlistId } ?: return false
+        if (!playlist.isNavidromeBacked) return false
+
+        val longIds = songIds.mapNotNull { it.toLongOrNull() }
+        val uriById = longIds.chunked(NAVIDROME_SONG_CHUNK_SIZE)
+            .flatMap { musicDao.getSongIdUris(it) }
+            .associate { it.id.toString() to it.contentUriString }
+
+        return songIds.any { id -> uriById[id]?.startsWith(NAVIDROME_URI_SCHEME) != true }
+    }
+
+    private fun showNavidromeLocalSongsBlockedToast() {
+        Toast.makeText(
+            context,
+            context.getString(R.string.playlist_navidrome_local_songs_blocked),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     fun removeSongFromPlaylist(playlistId: String, songIdToRemove: String) {
@@ -840,9 +939,11 @@ class PlaylistViewModel @Inject constructor(
      */
     fun deletePlaylistsInBatch(playlistIds: List<String>) {
         viewModelScope.launch {
+            val allPlaylists = _uiState.value.playlists
             playlistIds.forEach { playlistId ->
                 if (!isFolderPlaylistId(playlistId)) {
-                    playlistPreferencesRepository.deletePlaylist(playlistId)
+                    val playlist = allPlaylists.find { it.id == playlistId }
+                    deletePlaylistRouted(playlistId, playlist)
                 }
             }
         }
