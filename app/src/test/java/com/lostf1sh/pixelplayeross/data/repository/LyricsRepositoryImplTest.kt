@@ -6,6 +6,7 @@ import com.lostf1sh.pixelplayeross.data.database.LyricsEntity
 import com.lostf1sh.pixelplayeross.data.database.LyricsDao
 import com.lostf1sh.pixelplayeross.data.model.LyricsSourcePreference
 import com.lostf1sh.pixelplayeross.data.model.Song
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromeRepository
 import com.lostf1sh.pixelplayeross.data.network.lyrics.LrcLibApiService
 import com.lostf1sh.pixelplayeross.data.network.lyrics.LrcLibResponse
 import com.lostf1sh.pixelplayeross.data.preferences.UserPreferencesRepository
@@ -29,7 +30,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = mockk<LrcLibApiService>(relaxed = true),
             lyricsDao = mockk<LyricsDao>(relaxed = true),
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository()
+            userPreferencesRepository = userPreferencesRepository(),
+            navidromeRepository = navidromeRepository()
         )
         val song = Song(
             id = "12",
@@ -64,7 +66,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = apiService,
             lyricsDao = mockk<LyricsDao>(relaxed = true),
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository()
+            userPreferencesRepository = userPreferencesRepository(),
+            navidromeRepository = navidromeRepository()
         )
         val song = Song(
             id = "45",
@@ -107,7 +110,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository()
+            userPreferencesRepository = userPreferencesRepository(),
+            navidromeRepository = navidromeRepository()
         )
         val song = Song(
             id = "77",
@@ -147,7 +151,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository(externalLyricsEnabled = false)
+            userPreferencesRepository = userPreferencesRepository(externalLyricsEnabled = false),
+            navidromeRepository = navidromeRepository()
         )
         val song = testSong(
             id = "105",
@@ -183,7 +188,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository()
+            userPreferencesRepository = userPreferencesRepository(),
+            navidromeRepository = navidromeRepository()
         )
         val song = testSong(
             id = "101",
@@ -216,7 +222,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository()
+            userPreferencesRepository = userPreferencesRepository(),
+            navidromeRepository = navidromeRepository()
         )
         val song = testSong(
             id = "102",
@@ -249,7 +256,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository()
+            userPreferencesRepository = userPreferencesRepository(),
+            navidromeRepository = navidromeRepository()
         )
         val song = testSong(
             id = "103",
@@ -283,7 +291,8 @@ class LyricsRepositoryImplTest {
             lrcLibApiService = apiService,
             lyricsDao = lyricsDao,
             okHttpClient = mockk<OkHttpClient>(relaxed = true),
-            userPreferencesRepository = userPreferencesRepository()
+            userPreferencesRepository = userPreferencesRepository(),
+            navidromeRepository = navidromeRepository()
         )
         val song = testSong(
             id = "104",
@@ -309,6 +318,10 @@ class LyricsRepositoryImplTest {
         return mockk {
             every { this@mockk.externalLyricsEnabledFlow } returns flowOf(externalLyricsEnabled)
         }
+    }
+
+    private fun navidromeRepository(): NavidromeRepository {
+        return mockk(relaxed = true)
     }
 
     private fun testSong(

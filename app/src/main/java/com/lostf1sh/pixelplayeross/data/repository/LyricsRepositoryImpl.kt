@@ -97,7 +97,8 @@ class LyricsRepositoryImpl @Inject constructor(
     private val lrcLibApiService: LrcLibApiService,
     private val lyricsDao: com.lostf1sh.pixelplayeross.data.database.LyricsDao,
     private val okHttpClient: OkHttpClient,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val navidromeRepository: com.lostf1sh.pixelplayeross.data.navidrome.NavidromeRepository
 ) : LyricsRepository {
 
 
@@ -326,8 +327,9 @@ class LyricsRepositoryImpl @Inject constructor(
         val fetchFromApi: Pair<String, suspend () -> Lyrics?> = "API" to { fetchLyricsFromAPI(song) }
         val fetchFromEmbedded: Pair<String, suspend () -> Lyrics?> = "Embedded" to { loadEmbeddedLyricsFromMetadata(song) }
         val fetchFromLocal: Pair<String, suspend () -> Lyrics?> = "Local" to { findLocalLyricsFile(song) }
+        val fetchFromServer: Pair<String, suspend () -> Lyrics?> = "Server" to { fetchLyricsFromServer(song) }
 
-        val sourceFetchers = when (sourcePreference) {
+        val preferenceFetchers = when (sourcePreference) {
             LyricsSourcePreference.API_FIRST -> buildList {
                 if (remoteLyricsEnabled) add(fetchFromApi)
                 add(fetchFromEmbedded)
@@ -345,6 +347,11 @@ class LyricsRepositoryImpl @Inject constructor(
             }
         }
 
+        val sourceFetchers = buildList {
+            if (song.navidromeId != null) add(fetchFromServer)
+            addAll(preferenceFetchers)
+        }
+
         for ((sourceName, fetcher) in sourceFetchers) {
             try {
                 val lyrics = fetcher()
@@ -353,7 +360,7 @@ class LyricsRepositoryImpl @Inject constructor(
                     
                     lyricsCache.put(cacheKey, lyrics)
                     
-                    if (sourceName == "API") {
+                    if (sourceName == "API" || sourceName == "Server") {
                         saveLocalLyricsJson(song, lyrics)
                     }
                     
@@ -373,6 +380,31 @@ class LyricsRepositoryImpl @Inject constructor(
         loadStoredLyrics(song, cacheKey, includeMemoryCache = true)?.also { stored ->
             lyricsCache.put(cacheKey, stored.first)
         }
+    }
+
+    /**
+     * Fetches lyrics from the Navidrome server for songs synced from that source.
+     */
+    private suspend fun fetchLyricsFromServer(song: Song): Lyrics? = withContext(Dispatchers.IO) {
+        val navidromeId = song.navidromeId ?: return@withContext null
+        if (!navidromeRepository.isLoggedIn) return@withContext null
+        val raw = navidromeRepository.getLyrics(navidromeId).getOrNull()
+        if (raw.isNullOrBlank()) return@withContext null
+        val parsed = LyricsUtils.parseLyrics(raw).copy(areFromRemote = true)
+        if (!parsed.isValid()) return@withContext null
+        try {
+            lyricsDao.insert(
+                com.lostf1sh.pixelplayeross.data.database.LyricsEntity(
+                    songId = song.id.toLong(),
+                    content = raw,
+                    isSynced = !parsed.synced.isNullOrEmpty(),
+                    source = "remote"
+                )
+            )
+        } catch (e: NumberFormatException) {
+            Timber.tag(TAG).w("Skipping database save for non-numeric song ID: ${song.id}")
+        }
+        parsed
     }
 
     /**
