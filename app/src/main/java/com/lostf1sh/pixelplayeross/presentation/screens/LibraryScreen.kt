@@ -1253,7 +1253,10 @@ fun LibraryScreen(
                                             playerViewModel = playerViewModel,
                                             bottomBarHeight = bottomBarHeightDp,
                                             isRefreshing = isRefreshing,
-                                            onRefresh = onRefresh,
+                                            onRefresh = {
+                                                playerViewModel.refreshCloudPlaylists(force = true)
+                                                onRefresh()
+                                            },
                                             isSelectionMode = isPlaylistSelectionMode,
                                             selectedPlaylistIds = selectedPlaylistIds,
                                             onPlaylistLongPress = onPlaylistLongPress,
@@ -1403,7 +1406,7 @@ fun LibraryScreen(
     CreatePlaylistDialog(
         visible = showCreatePlaylistDialog,
         onDismiss = { showCreatePlaylistDialog = false },
-        onCreate = { name, imageUri, color, icon, songIds, cropScale, cropPanX, cropPanY, shapeType, d1, d2, d3, d4, smartRuleKey ->
+        onCreate = { name, imageUri, color, icon, songIds, cropScale, cropPanX, cropPanY, shapeType, d1, d2, d3, d4, smartRuleKey, syncToNavidrome ->
             playlistViewModel.createPlaylist(
                 name = name,
                 coverImageUri = imageUri,
@@ -1419,7 +1422,8 @@ fun LibraryScreen(
                 coverShapeDetail2 = d2,
                 coverShapeDetail3 = d3,
                 coverShapeDetail4 = d4,
-                smartRuleKey = smartRuleKey
+                smartRuleKey = smartRuleKey,
+                syncToNavidrome = syncToNavidrome
             )
         }
     )

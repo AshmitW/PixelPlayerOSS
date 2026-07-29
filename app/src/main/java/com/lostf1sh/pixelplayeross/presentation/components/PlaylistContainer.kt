@@ -10,6 +10,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -505,9 +506,11 @@ fun PlaylistItem(
 @Composable
 fun CreatePlaylistDialogRedesigned(
     onDismiss: () -> Unit,
-    onCreate: (String) -> Unit
+    onCreate: (String, Boolean) -> Unit,
+    showServerOption: Boolean = false
 ) {
     var playlistName by remember { mutableStateOf("") }
+    var createAsLocal by remember { mutableStateOf(false) }
 
     BasicAlertDialog(
         onDismissRequest = onDismiss,
@@ -547,6 +550,25 @@ fun CreatePlaylistDialogRedesigned(
                     )
                 )
 
+                if (showServerOption) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                            .clickable { createAsLocal = !createAsLocal },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = createAsLocal,
+                            onCheckedChange = { createAsLocal = it }
+                        )
+                        Text(
+                            text = stringResource(R.string.create_playlist_local_checkbox),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -560,7 +582,7 @@ fun CreatePlaylistDialogRedesigned(
                     }
 
                     Button(
-                        onClick = { onCreate(playlistName) },
+                        onClick = { onCreate(playlistName, showServerOption && !createAsLocal) },
                         modifier = Modifier.weight(1f),
                         enabled = playlistName.isNotEmpty(),
                         shape = RoundedCornerShape(16.dp),

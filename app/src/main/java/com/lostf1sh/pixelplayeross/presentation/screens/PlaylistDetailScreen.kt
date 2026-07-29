@@ -129,6 +129,8 @@ import com.lostf1sh.pixelplayeross.presentation.components.LibrarySortBottomShee
 import com.lostf1sh.pixelplayeross.data.model.SortOption
 import com.lostf1sh.pixelplayeross.data.model.PlaylistShapeType
 import com.lostf1sh.pixelplayeross.data.model.isSmartPlaylist
+import com.lostf1sh.pixelplayeross.data.model.isNavidromeBacked
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromePlaylistSyncManager
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -177,6 +179,7 @@ fun PlaylistDetailScreen(
     val exportPlaylistLabel = stringResource(R.string.presentation_batch_b_export_playlist)
     val deletePlaylistConfirmTitle = stringResource(R.string.presentation_batch_b_delete_playlist_confirm_title)
     val deletePlaylistConfirmBody = stringResource(R.string.presentation_batch_b_delete_playlist_confirm_body)
+    val deletePlaylistConfirmBodyServer = stringResource(R.string.presentation_batch_b_delete_playlist_confirm_body_server)
     val sortSheetTitle = stringResource(R.string.presentation_batch_b_sort_songs)
     val toastAddedToQueue = stringResource(R.string.toast_added_to_queue)
     val toastPlayingNext = stringResource(R.string.toast_playing_next)
@@ -188,6 +191,12 @@ fun PlaylistDetailScreen(
 
     LaunchedEffect(playlistId) {
         playlistViewModel.loadPlaylistDetails(playlistId)
+        if (playlistId.startsWith(NavidromePlaylistSyncManager.SERVER_PREFIX)) {
+            playerViewModel.refreshCloudPlaylistSongs(
+                playlistId.removePrefix(NavidromePlaylistSyncManager.SERVER_PREFIX),
+                force = false
+            )
+        }
     }
 
     var showAddSongsSheet by remember { mutableStateOf(false) }
@@ -830,7 +839,9 @@ fun PlaylistDetailScreen(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text(deletePlaylistConfirmTitle) },
             text = {
-                Text(deletePlaylistConfirmBody)
+                val isServerBackedPlaylist = currentPlaylist.isNavidromeBacked &&
+                    currentPlaylist.id.startsWith(NavidromePlaylistSyncManager.SERVER_PREFIX)
+                Text(if (isServerBackedPlaylist) deletePlaylistConfirmBodyServer else deletePlaylistConfirmBody)
             },
             confirmButton = {
                 TextButton(

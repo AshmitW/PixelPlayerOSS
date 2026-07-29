@@ -1031,6 +1031,8 @@ class PlayerViewModel @Inject constructor(
             initialValue = null
         )
 
+    val navidromeLoggedInFlow: StateFlow<Boolean> = navidromeRepository.isLoggedInFlow
+
     val albumsFlow: StateFlow<ImmutableList<Album>> = libraryStateHolder.albums
     val artistsFlow: StateFlow<ImmutableList<Artist>> = libraryStateHolder.artists
 
@@ -4043,12 +4045,26 @@ class PlayerViewModel @Inject constructor(
         )
         if (_currentLibraryTabId.value == LibraryTabId.LIKED) {
             refreshCloudFavorites(force = false)
+        } else if (_currentLibraryTabId.value == LibraryTabId.PLAYLISTS) {
+            refreshCloudPlaylists(force = false)
         }
     }
 
     fun refreshCloudFavorites(force: Boolean = false) {
         viewModelScope.launch {
             navidromeRepository.refreshStarredSongs(force)
+        }
+    }
+
+    fun refreshCloudPlaylists(force: Boolean = false) {
+        viewModelScope.launch {
+            navidromeRepository.refreshPlaylists(force)
+        }
+    }
+
+    fun refreshCloudPlaylistSongs(navidromePlaylistId: String, force: Boolean = false) {
+        viewModelScope.launch {
+            navidromeRepository.refreshPlaylistSongs(navidromePlaylistId, force)
         }
     }
 

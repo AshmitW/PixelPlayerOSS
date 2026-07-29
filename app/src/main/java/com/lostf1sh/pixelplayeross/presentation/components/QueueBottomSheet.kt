@@ -279,6 +279,7 @@ fun QueueBottomSheet(
 
     val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val showQueueHistory = settingsState.showQueueHistory
+    val navidromeLoggedIn by viewModel.navidromeLoggedInFlow.collectAsStateWithLifecycle()
 
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex
 
@@ -1037,14 +1038,16 @@ fun QueueBottomSheet(
                                         queue,
                                         defaultName
                                     ) { name, selectedIds ->
-                                        val orderedSelection = queue
-                                            .filter { selectedIds.contains(it.id) }
-                                            .map { it.id }
+                                        val selectedSongs = queue.filter { selectedIds.contains(it.id) }
+                                        val orderedSelection = selectedSongs.map { it.id }
                                         if (orderedSelection.isNotEmpty()) {
+                                            val syncToNavidrome = navidromeLoggedIn &&
+                                                selectedSongs.all { it.navidromeId != null }
                                             playlistViewModel.createPlaylist(
                                                 name = name,
                                                 songIds = orderedSelection,
-                                                isQueueGenerated = true
+                                                isQueueGenerated = true,
+                                                syncToNavidrome = syncToNavidrome
                                             )
                                         }
                                     }

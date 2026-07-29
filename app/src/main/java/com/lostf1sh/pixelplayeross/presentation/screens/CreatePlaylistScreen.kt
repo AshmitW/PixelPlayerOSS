@@ -66,6 +66,7 @@ import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Crop
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -206,7 +207,7 @@ private enum class PlaylistCreationMode {
 fun CreatePlaylistDialog(
     visible: Boolean,
     onDismiss: () -> Unit,
-    onCreate: (String, String?, Int?, String?, List<String>, Float, Float, Float, String?, Float?, Float?, Float?, Float?, String?) -> Unit
+    onCreate: (String, String?, Int?, String?, List<String>, Float, Float, Float, String?, Float?, Float?, Float?, Float?, String?, Boolean) -> Unit
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = visible
@@ -288,19 +289,34 @@ fun EditPlaylistDialog(
 @Composable
 private fun CreatePlaylistContent(
     onDismiss: () -> Unit,
-    onCreate: (String, String?, Int?, String?, List<String>, Float, Float, Float, String?, Float?, Float?, Float?, Float?, String?) -> Unit,
+    onCreate: (String, String?, Int?, String?, List<String>, Float, Float, Float, String?, Float?, Float?, Float?, Float?, String?, Boolean) -> Unit,
     playerViewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
 
     var playlistName by remember { mutableStateOf("") }
-    
+
     var currentStep by remember { mutableStateOf(0) }
     var selectedTab by remember { mutableStateOf(0) }
     var creationMode by remember { mutableStateOf(PlaylistCreationMode.MANUAL) }
     var selectedSmartRule by remember { mutableStateOf(SmartPlaylistRule.TOP_PLAYED) }
-    
+
     val selectedSongIds = remember { mutableStateMapOf<String, Boolean>() }
+
+    val isNavidromeAvailable by playerViewModel.navidromeLoggedInFlow.collectAsStateWithLifecycle()
+    var createAsLocal by remember { mutableStateOf(false) }
+    var selectionHasNonNavidromeSongs by remember { mutableStateOf(false) }
+    val selectedIdsForNavidromeCheck = selectedSongIds.filterValues { it }.keys.toList()
+    LaunchedEffect(selectedIdsForNavidromeCheck) {
+        selectionHasNonNavidromeSongs = if (selectedIdsForNavidromeCheck.isEmpty()) {
+            false
+        } else {
+            playerViewModel.getSongs(selectedIdsForNavidromeCheck).any { it.navidromeId == null }
+        }
+    }
+    val showServerOptionCheckbox = isNavidromeAvailable && creationMode == PlaylistCreationMode.MANUAL
+    val effectiveCreateAsLocal = createAsLocal || selectionHasNonNavidromeSongs
+    val syncToNavidrome = showServerOptionCheckbox && !effectiveCreateAsLocal
     
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var showCropUi by remember { mutableStateOf(false) }
@@ -473,7 +489,8 @@ private fun CreatePlaylistContent(
                                         panY,
                                         shapeTypeForSave,
                                         d1, d2, d3, d4,
-                                        selectedSmartRule.storageKey
+                                        selectedSmartRule.storageKey,
+                                        false
                                     )
                                 }
                             }
@@ -506,7 +523,8 @@ private fun CreatePlaylistContent(
                                 panY,
                                 shapeTypeForSave,
                                 d1, d2, d3, d4,
-                                null
+                                null,
+                                syncToNavidrome
                             )
                         }
                     },
@@ -522,114 +540,154 @@ private fun CreatePlaylistContent(
         },
         bottomBar = {
             if (currentStep == 1 && creationMode == PlaylistCreationMode.MANUAL) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val storageFilter by playerViewModel.playlistPickerStorageFilter.collectAsStateWithLifecycle()
-                    val tabs = listOf(
-                        StorageFilter.OFFLINE to R.string.library_storage_filter_offline,
-                        StorageFilter.ONLINE to R.string.library_storage_filter_online
-                    )
-                    val selectedTabIndex = tabs.indexOfFirst { it.first == storageFilter }.coerceAtLeast(0)
-
-                    PrimaryTabRow(
-                        selectedTabIndex = selectedTabIndex,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(5.dp),
-                        containerColor = Color.Transparent,
-                        divider = {},
-                        indicator = {}
-                    ) {
-                        tabs.forEachIndexed { index, (filter, labelRes) ->
-                            TabAnimation(
-                                index = index,
-                                title = stringResource(labelRes),
-                                selectedIndex = selectedTabIndex,
-                                onClick = { playerViewModel.setPlaylistPickerStorageFilter(filter) },
-                                transformOrigin = if (index == 0) TransformOrigin(0f, 0.5f) else TransformOrigin(1f, 0.5f)
+                    if (showServerOptionCheckbox) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !selectionHasNonNavidromeSongs) {
+                                        createAsLocal = !createAsLocal
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    if (filter == StorageFilter.OFFLINE) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_phonef),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Cloud,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = stringResource(labelRes),
-                                        fontFamily = RoundedSans,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(end = 4.dp)
-                                    )
-                                }
+                                Checkbox(
+                                    checked = effectiveCreateAsLocal,
+                                    enabled = !selectionHasNonNavidromeSongs,
+                                    onCheckedChange = { createAsLocal = it }
+                                )
+                                Text(
+                                    text = stringResource(R.string.create_playlist_local_checkbox),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            if (selectionHasNonNavidromeSongs) {
+                                Text(
+                                    text = stringResource(R.string.create_playlist_local_forced_caption),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 48.dp)
+                                )
                             }
                         }
                     }
-
-                    FilledIconButton(
-                        onClick = {
-                            val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
-                            val color = if(selectedTab == 2) selectedColor else null
-                            val icon = if(selectedTab == 2) selectedIconName else null
-                            
-                            val scale = if(selectedTab == 1) cropScale else 1f
-                            val panX = if(selectedTab == 1) cropOffset.x else 0f
-                            val panY = if(selectedTab == 1) cropOffset.y else 0f
-                            
-                            val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
-                            val (d1, d2, d3, d4) = if (selectedTab == 2) {
-                                when (selectedShapeType) {
-                                    PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
-                                    PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
-                                    else -> Quadruple(0f, 0f, 0f, 0f)
-                                }
-                            } else Quadruple(null, null, null, null)
-
-                            onCreate(
-                                playlistName, 
-                                imageUriString, 
-                                color, 
-                                icon, 
-                                selectedSongIds.filterValues { it }.keys.toList(),
-                                scale,
-                                panX,
-                                panY,
-                                shapeTypeForSave,
-                                d1, d2, d3, d4,
-                                null
-                            )
-                        },
-                        modifier = Modifier.size(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            Icons.Rounded.Check,
-                            contentDescription = stringResource(R.string.presentation_batch_f_create),
-                            modifier = Modifier.size(28.dp)
+                        val storageFilter by playerViewModel.playlistPickerStorageFilter.collectAsStateWithLifecycle()
+                        val tabs = listOf(
+                            StorageFilter.OFFLINE to R.string.library_storage_filter_offline,
+                            StorageFilter.ONLINE to R.string.library_storage_filter_online
                         )
+                        val selectedTabIndex = tabs.indexOfFirst { it.first == storageFilter }.coerceAtLeast(0)
+
+                        PrimaryTabRow(
+                            selectedTabIndex = selectedTabIndex,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .padding(5.dp),
+                            containerColor = Color.Transparent,
+                            divider = {},
+                            indicator = {}
+                        ) {
+                            tabs.forEachIndexed { index, (filter, labelRes) ->
+                                TabAnimation(
+                                    index = index,
+                                    title = stringResource(labelRes),
+                                    selectedIndex = selectedTabIndex,
+                                    onClick = { playerViewModel.setPlaylistPickerStorageFilter(filter) },
+                                    transformOrigin = if (index == 0) TransformOrigin(0f, 0.5f) else TransformOrigin(1f, 0.5f)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        if (filter == StorageFilter.OFFLINE) {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_phonef),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Cloud,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = stringResource(labelRes),
+                                            fontFamily = RoundedSans,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(end = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        FilledIconButton(
+                            onClick = {
+                                val imageUriString = if(selectedTab == 1) selectedImageUri?.toString() else null
+                                val color = if(selectedTab == 2) selectedColor else null
+                                val icon = if(selectedTab == 2) selectedIconName else null
+                            
+                                val scale = if(selectedTab == 1) cropScale else 1f
+                                val panX = if(selectedTab == 1) cropOffset.x else 0f
+                                val panY = if(selectedTab == 1) cropOffset.y else 0f
+                            
+                                val shapeTypeForSave = if (selectedTab == 2) selectedShapeType.name else null
+                                val (d1, d2, d3, d4) = if (selectedTab == 2) {
+                                    when (selectedShapeType) {
+                                        PlaylistShapeType.SmoothRect -> Quadruple(smoothRectCornerRadius, smoothRectSmoothness, 0f, 0f)
+                                        PlaylistShapeType.Star -> Quadruple(starCurve.toFloat(), starRotation, starScale, starSides.toFloat())
+                                        else -> Quadruple(0f, 0f, 0f, 0f)
+                                    }
+                                } else Quadruple(null, null, null, null)
+
+                                onCreate(
+                                    playlistName, 
+                                    imageUriString, 
+                                    color, 
+                                    icon, 
+                                    selectedSongIds.filterValues { it }.keys.toList(),
+                                    scale,
+                                    panX,
+                                    panY,
+                                    shapeTypeForSave,
+                                    d1, d2, d3, d4,
+                                    null,
+                                    syncToNavidrome
+                                )
+                            },
+                            modifier = Modifier.size(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        ) {
+                            Icon(
+                                Icons.Rounded.Check,
+                                contentDescription = stringResource(R.string.presentation_batch_f_create),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
                 }
             }

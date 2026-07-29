@@ -196,10 +196,17 @@ fun PlaylistBottomSheet(
                 )
 
                 if (showCreatePlaylistDialog) {
+                    val navidromeLoggedIn by playerViewModel.navidromeLoggedInFlow.collectAsStateWithLifecycle()
+                    val showServerOption = navidromeLoggedIn && songs.isNotEmpty() && songs.all { it.navidromeId != null }
                     CreatePlaylistDialogRedesigned(
                         onDismiss = { showCreatePlaylistDialog = false },
-                        onCreate = { name ->
-                            playlistViewModel.createPlaylist(name, songIds = songs.map { it.id })
+                        showServerOption = showServerOption,
+                        onCreate = { name, syncToNavidrome ->
+                            playlistViewModel.createPlaylist(
+                                name,
+                                songIds = songs.map { it.id },
+                                syncToNavidrome = syncToNavidrome
+                            )
                             showCreatePlaylistDialog = false
                             onDismiss()
                             playerViewModel.sendToast(playlistCreatedToast)
