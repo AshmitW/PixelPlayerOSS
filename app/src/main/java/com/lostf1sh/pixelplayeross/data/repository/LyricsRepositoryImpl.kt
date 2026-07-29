@@ -24,6 +24,7 @@ import com.lostf1sh.pixelplayeross.utils.LogUtils
 import com.lostf1sh.pixelplayeross.utils.LyricsUtils
 import com.lostf1sh.pixelplayeross.utils.NetworkRetryUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -401,8 +402,10 @@ class LyricsRepositoryImpl @Inject constructor(
                     source = "remote"
                 )
             )
-        } catch (e: NumberFormatException) {
-            Timber.tag(TAG).w("Skipping database save for non-numeric song ID: ${song.id}")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.tag(TAG).w("Skipping database save for server lyrics: ${e.message}")
         }
         parsed
     }
