@@ -81,6 +81,9 @@ interface LocalPlaylistDao {
     @Query("SELECT * FROM playlists WHERE source = 'NAVIDROME' AND (navidrome_dirty = 1 OR navidrome_pending_create = 1)")
     suspend fun getDirtyNavidromePlaylistsOnce(): List<PlaylistEntity>
 
+    @Query("SELECT * FROM playlists WHERE navidrome_pending_create = 1")
+    suspend fun getPendingCreatePlaylistsOnce(): List<PlaylistEntity>
+
     @Query("UPDATE playlists SET id = :newId WHERE id = :oldId")
     suspend fun updatePlaylistId(oldId: String, newId: String)
 

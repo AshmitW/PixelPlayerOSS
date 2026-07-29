@@ -10,9 +10,11 @@ import com.lostf1sh.pixelplayeross.data.database.AlbumEntity
 import com.lostf1sh.pixelplayeross.data.database.ArtistEntity
 import com.lostf1sh.pixelplayeross.data.database.FavoritesDao
 import com.lostf1sh.pixelplayeross.data.database.FavoritesEntity
+import com.lostf1sh.pixelplayeross.data.database.LocalPlaylistDao
 import com.lostf1sh.pixelplayeross.data.database.MusicDao
 import com.lostf1sh.pixelplayeross.data.database.NavidromeDao
 import com.lostf1sh.pixelplayeross.data.database.NavidromePendingFavoriteEntity
+import com.lostf1sh.pixelplayeross.data.database.NavidromePendingPlaylistDeleteEntity
 import com.lostf1sh.pixelplayeross.data.database.NavidromePlaylistEntity
 import com.lostf1sh.pixelplayeross.data.database.NavidromeSongEntity
 import com.lostf1sh.pixelplayeross.data.database.toEntity
@@ -51,6 +53,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -70,6 +73,8 @@ class NavidromeRepository @Inject constructor(
     private val musicDao: MusicDao,
     private val favoritesDao: FavoritesDao,
     private val favoritesSyncManager: NavidromeFavoritesSyncManager,
+    private val playlistSyncManager: NavidromePlaylistSyncManager,
+    private val localPlaylistDao: LocalPlaylistDao,
     private val playlistPreferencesRepository: PlaylistPreferencesRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
     @ApplicationContext private val context: Context
@@ -85,6 +90,8 @@ class NavidromeRepository @Inject constructor(
         private const val KEY_LAST_FULL_SYNC = "last_full_sync"
         private const val KEY_FAVORITES_IMPORTED = "favorites_imported"
         private const val STARRED_REFRESH_MIN_INTERVAL_MS = 30_000L
+        private const val PLAYLISTS_REFRESH_MIN_INTERVAL_MS = 30_000L
+        private const val PLAYLIST_SONGS_REFRESH_MIN_INTERVAL_MS = 30_000L
 
         private const val NAVIDROME_SONG_ID_OFFSET = 9_000_000_000_000L
         private const val NAVIDROME_ALBUM_ID_OFFSET = 10_000_000_000_000L
@@ -248,10 +255,21 @@ class NavidromeRepository @Inject constructor(
             deleteAppPlaylistForNavidromePlaylist(playlist.id)
         }
 
+        // Playlists created locally while offline never reached the server, so they
+        // have no mirror in dao.getAllPlaylistsList() above and would otherwise be
+        // orphaned (still flagged NAVIDROME with no account to sync to). Convert them
+        // to plain local playlists so the user keeps the data.
+        localPlaylistDao.getPendingCreatePlaylistsOnce().forEach { entity ->
+            localPlaylistDao.upsertPlaylist(
+                entity.copy(source = "LOCAL", navidromeDirty = false, navidromePendingCreate = false)
+            )
+        }
+
         dao.clearAllSongs()
         musicDao.clearAllNavidromeSongs()
         dao.clearAllPlaylists()
         dao.clearPendingFavorites()
+        dao.clearPendingPlaylistDeletes()
         userPreferencesRepository.clearNavidromeSelectedMusicFolderIds()
         _isLoggedInFlow.value = false
     }
@@ -283,6 +301,14 @@ class NavidromeRepository @Inject constructor(
 
         return withContext(Dispatchers.IO) {
             try {
+                try {
+                    playlistSyncManager.drainPendingPlaylistOps()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "$TAG: Failed to push pending playlist ops, continuing with pull")
+                }
+
                 Timber.d("$TAG: Syncing playlists")
                 val result = api.getPlaylists()
 
@@ -334,9 +360,19 @@ class NavidromeRepository @Inject constructor(
                 if (stalePlaylists.isNotEmpty()) {
                     Timber.d("$TAG: Removing ${stalePlaylists.size} stale playlists")
                     stalePlaylists.forEach { stale ->
-                        dao.deleteSongsByPlaylist(stale.id)
-                        dao.deletePlaylist(stale.id)
-                        deleteAppPlaylistForNavidromePlaylist(stale.id)
+                        val appPlaylistId = getAppPlaylistIdForNavidrome(stale.id)
+                        val mirror = localPlaylistDao.getPlaylistById(appPlaylistId)
+                        if (mirror?.navidromeDirty == true || mirror?.navidromePendingCreate == true) {
+                            // Local edits haven't been pushed yet; the server-side playlist
+                            // vanishing must not discard them. Flag for recreate instead of
+                            // deleting so the next drain pushes it back under a new server id.
+                            Timber.d("$TAG: Stale playlist ${stale.id} has unpushed local changes, flagging for recreate instead of deleting")
+                            localPlaylistDao.setNavidromeSyncFlags(appPlaylistId, dirty = true, pendingCreate = true)
+                        } else {
+                            dao.deleteSongsByPlaylist(stale.id)
+                            dao.deletePlaylist(stale.id)
+                            deleteAppPlaylistForNavidromePlaylist(stale.id)
+                        }
                     }
                 }
 
@@ -1043,8 +1079,15 @@ class NavidromeRepository @Inject constructor(
                 }.first()
             }
 
+            if (existingPlaylist != null && (existingPlaylist.navidromeDirty || existingPlaylist.navidromePendingCreate)) {
+                // Local edits are pending push; overwriting now would silently discard
+                // them. The drain (once it succeeds) is what clears these flags.
+                Timber.d("$TAG: Skipping pull overwrite for $navidromePlaylistId, local mirror has unpushed changes")
+                return
+            }
+
             if (existingPlaylist != null) {
-                playlistPreferencesRepository.updatePlaylist(
+                playlistPreferencesRepository.updatePlaylistFromSync(
                     existingPlaylist.copy(
                         name = playlistName,
                         songIds = unifiedSongIds,
@@ -1114,6 +1157,64 @@ class NavidromeRepository @Inject constructor(
         dao.deletePlaylist(playlistId)
         deleteAppPlaylistForNavidromePlaylist(playlistId)
         syncUnifiedLibrarySongsFromNavidrome()
+    }
+
+    /**
+     * User-initiated delete of a Navidrome-backed playlist: removes local
+     * caches immediately and queues a server-side delete (tombstoned so it
+     * survives process death and retries until the server confirms).
+     */
+    suspend fun deletePlaylistEverywhere(navidromePlaylistId: String) {
+        if (navidromePlaylistId == LIBRARY_PLAYLIST_ID) return
+        dao.upsertPendingPlaylistDelete(
+            NavidromePendingPlaylistDeleteEntity(serverId = navidromePlaylistId)
+        )
+        deletePlaylist(navidromePlaylistId)
+        playlistSyncManager.schedulePush()
+    }
+
+    @Volatile
+    private var lastPlaylistsRefreshMs = 0L
+    private val playlistSongsRefreshMs = ConcurrentHashMap<String, Long>()
+
+    /**
+     * Lightweight playlists refresh for UI triggers (Playlists tab shown or
+     * pull-to-refresh). Pushes pending local changes first so a stale pull
+     * cannot clobber them, then pulls. Skips when logged out; non-forced
+     * calls are rate limited so tab switching does not spam the server.
+     */
+    suspend fun refreshPlaylists(force: Boolean = false) {
+        if (!isLoggedIn) return
+        val now = System.currentTimeMillis()
+        if (!shouldRefreshCloudFavorites(force, now, lastPlaylistsRefreshMs, PLAYLISTS_REFRESH_MIN_INTERVAL_MS)) return
+        lastPlaylistsRefreshMs = now
+        try {
+            syncPlaylists()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "$TAG: playlists refresh failed")
+        }
+    }
+
+    /**
+     * Lightweight songs-only refresh for a single Navidrome-backed playlist,
+     * rate limited per playlist id so opening the same playlist repeatedly
+     * does not spam the server.
+     */
+    suspend fun refreshPlaylistSongs(navidromePlaylistId: String, force: Boolean = false) {
+        if (!isLoggedIn) return
+        val now = System.currentTimeMillis()
+        val last = playlistSongsRefreshMs[navidromePlaylistId] ?: 0L
+        if (!shouldRefreshCloudFavorites(force, now, last, PLAYLIST_SONGS_REFRESH_MIN_INTERVAL_MS)) return
+        playlistSongsRefreshMs[navidromePlaylistId] = now
+        try {
+            syncPlaylistSongs(navidromePlaylistId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "$TAG: playlist songs refresh failed for $navidromePlaylistId")
+        }
     }
 }
 

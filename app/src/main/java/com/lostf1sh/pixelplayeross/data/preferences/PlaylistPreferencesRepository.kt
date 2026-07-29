@@ -6,6 +6,7 @@ import com.lostf1sh.pixelplayeross.data.database.toEntity
 import com.lostf1sh.pixelplayeross.data.database.toPlaylist
 import com.lostf1sh.pixelplayeross.data.model.isSmartPlaylist
 import com.lostf1sh.pixelplayeross.data.model.SortOption
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromePlaylistSyncManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -19,7 +20,8 @@ import javax.inject.Singleton
 @Singleton
 class PlaylistPreferencesRepository @Inject constructor(
     private val localPlaylistDao: LocalPlaylistDao,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val playlistSyncManager: NavidromePlaylistSyncManager
 ) {
     private val migrationMutex = Mutex()
     @Volatile
@@ -52,7 +54,8 @@ class PlaylistPreferencesRepository @Inject constructor(
         coverShapeDetail3: Float? = null,
         coverShapeDetail4: Float? = null,
         customId: String? = null,
-        source: String = "LOCAL"
+        source: String = "LOCAL",
+        pendingCreate: Boolean = false
     ): Playlist {
         ensureMigratedIfNeeded()
         val now = System.currentTimeMillis()
@@ -72,10 +75,22 @@ class PlaylistPreferencesRepository @Inject constructor(
             coverShapeDetail3 = coverShapeDetail3,
             coverShapeDetail4 = coverShapeDetail4,
             source = source,
+            navidromePendingCreate = pendingCreate,
+            navidromeDirty = false,
         )
         localPlaylistDao.upsertPlaylist(newPlaylist.toEntity())
         localPlaylistDao.replacePlaylistSongs(newPlaylist.id, newPlaylist.songIds)
         return newPlaylist
+    }
+
+    /**
+     * Writes a playlist pulled from the server. Never marks the mirror dirty
+     * and always clears sync flags, so this cannot itself re-trigger a push.
+     */
+    suspend fun updatePlaylistFromSync(playlist: Playlist) {
+        ensureMigratedIfNeeded()
+        localPlaylistDao.upsertPlaylist(playlist.toEntity().copy(navidromeDirty = false, navidromePendingCreate = false))
+        localPlaylistDao.replacePlaylistSongs(playlist.id, playlist.songIds)
     }
 
     suspend fun deletePlaylist(playlistId: String) {
@@ -92,6 +107,9 @@ class PlaylistPreferencesRepository @Inject constructor(
             lastModified = System.currentTimeMillis()
         )
         localPlaylistDao.upsertPlaylist(updated.toEntity())
+        if (updated.source == "NAVIDROME") {
+            playlistSyncManager.markDirtyAndSchedule(updated.id)
+        }
     }
 
     suspend fun updatePlaylist(playlist: Playlist) {
@@ -99,6 +117,9 @@ class PlaylistPreferencesRepository @Inject constructor(
         val updated = playlist.copy(lastModified = System.currentTimeMillis())
         localPlaylistDao.upsertPlaylist(updated.toEntity())
         localPlaylistDao.replacePlaylistSongs(updated.id, updated.songIds)
+        if (updated.source == "NAVIDROME") {
+            playlistSyncManager.markDirtyAndSchedule(updated.id)
+        }
     }
 
     suspend fun addSongsToPlaylist(playlistId: String, songIdsToAdd: List<String>) {
