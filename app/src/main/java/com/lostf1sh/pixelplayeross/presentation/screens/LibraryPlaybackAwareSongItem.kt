@@ -31,6 +31,8 @@ internal fun LibraryPlaybackAwareSongItem(
     isSelected: Boolean = false,
     selectionIndex: Int? = null,
     isSelectionMode: Boolean = false,
+    isDownloaded: Boolean = false,
+    isOfflineUnavailable: Boolean = false,
     onLongPress: () -> Unit = {},
     onMoreOptionsClick: (Song) -> Unit,
     onClick: () -> Unit
@@ -57,6 +59,8 @@ internal fun LibraryPlaybackAwareSongItem(
         isSelected = isSelected,
         selectionIndex = selectionIndex,
         isSelectionMode = isSelectionMode,
+        isDownloaded = isDownloaded,
+        isOfflineUnavailable = isOfflineUnavailable,
         onLongPress = onLongPress,
         onMoreOptionsClick = onMoreOptionsClick,
         onClick = onClick

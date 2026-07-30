@@ -471,6 +471,7 @@ fun GenreDetailScreen(
                             showPlaylistBottomSheet = true
                         },
                         onDeleteFromDevice = playerViewModel::deleteFromDevice,
+                        playerViewModel = playerViewModel,
                         onNavigateToAlbum = {
                             navController.navigateSafelyReplacing(
                                 route = com.lostf1sh.pixelplayeross.presentation.navigation.Screen.AlbumDetail.createRoute(song.albumId),

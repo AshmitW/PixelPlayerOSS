@@ -3,6 +3,8 @@ package com.lostf1sh.pixelplayeross.presentation.viewmodel
 import android.content.Context
 import app.cash.turbine.test
 import com.lostf1sh.pixelplayeross.data.database.AlbumArtThemeDao
+import com.lostf1sh.pixelplayeross.data.database.PinnedDownloadsDao
+import com.lostf1sh.pixelplayeross.data.offline.NavidromeOfflineManager
 import com.google.common.util.concurrent.ListenableFuture
 import com.lostf1sh.pixelplayeross.data.model.SearchFilterType
 import com.lostf1sh.pixelplayeross.data.model.SearchHistoryItem
@@ -65,6 +67,8 @@ class PlayerViewModelTest {
     private val mockUserPreferencesRepository: UserPreferencesRepository = mockk(relaxed = true)
     private val mockThemePreferencesRepository: ThemePreferencesRepository = mockk(relaxed = true)
     private val mockAlbumArtThemeDao: AlbumArtThemeDao = mockk(relaxed = true)
+    private val mockPinnedDownloadsDao: PinnedDownloadsDao = mockk(relaxed = true)
+    private val mockNavidromeOfflineManager: NavidromeOfflineManager = mockk(relaxed = true)
     private val mockContext: Context = mockk(relaxed = true)
 
     private val mockSyncManager: SyncManager = mockk(relaxed = true)
@@ -201,7 +205,8 @@ class PlayerViewModelTest {
             runnable.run()
         }
         every { mockMediaControllerFactory.create(any(), any(), any()) } returns mockFuture
-        
+        every { mockPinnedDownloadsDao.observeCompletedSongIds() } returns MutableStateFlow(emptyList())
+
         playerViewModel = PlayerViewModel(
             mockContext,
             mockMusicRepository,
@@ -209,6 +214,8 @@ class PlayerViewModelTest {
             mockUserPreferencesRepository,
             mockThemePreferencesRepository,
             mockAlbumArtThemeDao,
+            mockPinnedDownloadsDao,
+            mockNavidromeOfflineManager,
             mockSyncManager,
             mockDualPlayerEngine,
             mockAppShortcutManager,

@@ -223,6 +223,7 @@ internal fun UnifiedPlayerSongInfoLayer(
                     playerViewModel.deleteFromDevice(activity, songToDelete, onResult)
                     onDismissSongInfo()
                 },
+                playerViewModel = playerViewModel,
                 onNavigateToAlbum = { onNavigateToAlbum(liveSong) },
                 onNavigateToArtist = { onNavigateToArtist(liveSong) },
                 onNavigateToGenre = { onNavigateToGenre(liveSong) },

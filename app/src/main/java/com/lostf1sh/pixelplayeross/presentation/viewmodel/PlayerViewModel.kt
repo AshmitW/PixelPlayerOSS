@@ -38,6 +38,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.lostf1sh.pixelplayeross.R
 import com.lostf1sh.pixelplayeross.data.EotStateHolder
 import com.lostf1sh.pixelplayeross.data.database.AlbumArtThemeDao
+import com.lostf1sh.pixelplayeross.data.database.PinnedCollectionEntity
+import com.lostf1sh.pixelplayeross.data.database.PinnedDownloadsDao
+import com.lostf1sh.pixelplayeross.data.offline.NavidromeOfflineManager
 import com.lostf1sh.pixelplayeross.data.media.CoverArtUpdate
 import com.lostf1sh.pixelplayeross.data.navidrome.NavidromeRepository
 import com.lostf1sh.pixelplayeross.data.model.Album
@@ -252,6 +255,8 @@ class PlayerViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val themePreferencesRepository: ThemePreferencesRepository,
     private val albumArtThemeDao: AlbumArtThemeDao,
+    private val pinnedDownloadsDao: PinnedDownloadsDao,
+    private val navidromeOfflineManager: NavidromeOfflineManager,
     val syncManager: SyncManager,
 
     private val dualPlayerEngine: DualPlayerEngine,
@@ -796,6 +801,7 @@ class PlayerViewModel @Inject constructor(
     val bluetoothName: StateFlow<String?> = connectivityStateHolder.bluetoothName
     val bluetoothAudioDeviceStates: StateFlow<List<BluetoothAudioDeviceState>> = connectivityStateHolder.bluetoothAudioDeviceStates
     val bluetoothAudioDevices: StateFlow<List<String>> = connectivityStateHolder.bluetoothAudioDevices
+    val isOnline: StateFlow<Boolean> = connectivityStateHolder.isOnline
 
 
 
@@ -923,6 +929,10 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             _toastEvents.emit(message)
         }
+    }
+
+    fun notifyOfflineUnavailable() {
+        sendToast(context.getString(R.string.offline_not_downloaded_toast))
     }
 
     fun onSearchNavIconDoubleTapped() {
@@ -1081,6 +1091,11 @@ class PlayerViewModel @Inject constructor(
 
     val favoriteSongIds: StateFlow<Set<String>> = musicRepository
         .getFavoriteSongIdsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    val downloadedNavidromeIds: StateFlow<Set<String>> = pinnedDownloadsDao
+        .observeCompletedSongIds()
+        .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     val isCurrentSongFavorite: StateFlow<Boolean> = combine(
@@ -3112,6 +3127,18 @@ class PlayerViewModel @Inject constructor(
             val currentlyFavorite = favoriteSongIds.value.contains(favoriteSongId)
             val targetFavoriteState = if (removing) false else !currentlyFavorite
             setFavoriteStatusEverywhere(favoriteSongId, targetFavoriteState)
+        }
+    }
+
+    fun pinSong(navidromeId: String) {
+        viewModelScope.launch {
+            navidromeOfflineManager.pinCollection(PinnedCollectionEntity.PinType.SONG, navidromeId)
+        }
+    }
+
+    fun unpinSong(navidromeId: String) {
+        viewModelScope.launch {
+            navidromeOfflineManager.unpinCollection(PinnedCollectionEntity.PinType.SONG, navidromeId)
         }
     }
 

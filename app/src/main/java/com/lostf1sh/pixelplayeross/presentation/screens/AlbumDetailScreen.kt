@@ -123,6 +123,8 @@ fun AlbumDetailScreen(
         derivedStateOf { stablePlayerState.currentSong != null }
     }
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
+    val downloadedNavidromeIds by playerViewModel.downloadedNavidromeIds.collectAsStateWithLifecycle()
+    val isOnline by playerViewModel.isOnline.collectAsStateWithLifecycle()
     val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
 
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
@@ -338,15 +340,26 @@ fun AlbumDetailScreen(
                                 key = { song -> "album_song_${song.id}" },
                                 contentType = { "album_song" }
                             ) { song ->
+                                val isDownloaded = song.navidromeId != null && song.navidromeId in downloadedNavidromeIds
+                                val isOfflineUnavailable = !isOnline && song.navidromeId != null && song.navidromeId !in downloadedNavidromeIds
+
                                 LibraryPlaybackAwareSongItem(
                                     song = song,
                                     playerViewModel = playerViewModel,
                                     showAlbumArt = false,
+                                    isDownloaded = isDownloaded,
+                                    isOfflineUnavailable = isOfflineUnavailable,
                                     onMoreOptionsClick = {
                                         playerViewModel.selectSongForInfo(song)
                                         showSongInfoBottomSheet = true
                                     },
-                                    onClick = { playerViewModel.showAndPlaySong(song, songs) }
+                                    onClick = {
+                                        if (isOfflineUnavailable) {
+                                            playerViewModel.notifyOfflineUnavailable()
+                                        } else {
+                                            playerViewModel.showAndPlaySong(song, songs)
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -443,6 +456,7 @@ fun AlbumDetailScreen(
                         showPlaylistBottomSheet = true;
                     },
                     onDeleteFromDevice = playerViewModel::deleteFromDevice,
+                playerViewModel = playerViewModel,
                     onNavigateToAlbum = {
                         navController.navigateSafelyReplacing(
                             route = Screen.AlbumDetail.createRoute(currentSong.albumId),

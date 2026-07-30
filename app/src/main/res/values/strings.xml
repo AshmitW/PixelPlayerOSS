@@ -124,6 +124,7 @@
     <string name="restore_partial_unresolved_format">Restore completed with unresolved issues. Failed: %1$s</string>
     <string name="dev_test_crash_message">Test crash triggered from Developer Options - This is intentional for testing the crash reporting system</string>
 
+    <string name="offline_not_downloaded_toast">Not downloaded — you\'re offline</string>
     <string name="player_song_not_found_in_list">Song not found in current list</string>
     <string name="player_could_not_locate_song">Could not locate song</string>
     <string name="player_no_songs_in_library_toast">No songs found in library</string>

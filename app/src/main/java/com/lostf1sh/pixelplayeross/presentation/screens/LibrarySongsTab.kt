@@ -85,6 +85,8 @@ fun LibrarySongsTab(
     val listState = rememberLazyListState()
     val pullToRefreshState = rememberPullToRefreshState()
     val coroutineScope = rememberCoroutineScope()
+    val downloadedNavidromeIds by playerViewModel.downloadedNavidromeIds.collectAsStateWithLifecycle()
+    val isOnline by playerViewModel.isOnline.collectAsStateWithLifecycle()
     val visibilityCallback by rememberUpdatedState(onLocateCurrentSongVisibilityChanged)
     val registerActionCallback by rememberUpdatedState(onRegisterLocateCurrentSongAction)
     val songFastScrollLabelProvider = remember(songs, sortOption) {
@@ -309,19 +311,23 @@ fun LibrarySongsTab(
                                 
                                 if (song != null) {
                                     val isSelected = selectedSongIds.contains(song.id)
-                                    
+                                    val isDownloaded = song.navidromeId != null && song.navidromeId in downloadedNavidromeIds
+                                    val isOfflineUnavailable = !isOnline && song.navidromeId != null && song.navidromeId !in downloadedNavidromeIds
+
                                     val rememberedOnMoreOptionsClick: (Song) -> Unit = remember(onMoreOptionsClick) {
                                         { songFromListItem -> onMoreOptionsClick(songFromListItem) }
                                     }
-                                    
-                                    val rememberedOnClick: () -> Unit = remember(song, isSelectionMode) {
+
+                                    val rememberedOnClick: () -> Unit = remember(song, isSelectionMode, isOfflineUnavailable) {
                                         if (isSelectionMode) {
                                             { onSongSelectionToggle(song) }
+                                        } else if (isOfflineUnavailable) {
+                                            { playerViewModel.notifyOfflineUnavailable() }
                                         } else {
                                             { playerViewModel.showAndPlaySongFromLibrary(song) }
                                         }
                                     }
-                                    
+
                                     val rememberedOnLongPress: () -> Unit = remember(song) {
                                         { onSongLongPress(song) }
                                     }
@@ -332,6 +338,8 @@ fun LibrarySongsTab(
                                         isSelected = isSelected,
                                         isSelectionMode = isSelectionMode,
                                         selectionIndex = if (isSelectionMode) getSelectionIndex(song.id) else null,
+                                        isDownloaded = isDownloaded,
+                                        isOfflineUnavailable = isOfflineUnavailable,
                                         onLongPress = rememberedOnLongPress,
                                         onMoreOptionsClick = rememberedOnMoreOptionsClick,
                                         onClick = rememberedOnClick

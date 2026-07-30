@@ -93,6 +93,8 @@ fun LibraryFavoritesTab(
 ) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val downloadedNavidromeIds by playerViewModel.downloadedNavidromeIds.collectAsStateWithLifecycle()
+    val isOnline by playerViewModel.isOnline.collectAsStateWithLifecycle()
     val visibilityCallback by rememberUpdatedState(onLocateCurrentSongVisibilityChanged)
     val registerActionCallback by rememberUpdatedState(onRegisterLocateCurrentSongAction)
     val favoriteFastScrollLabelProvider = remember(favoriteSongs, sortOption) {
@@ -249,6 +251,9 @@ fun LibraryFavoritesTab(
                         ) { index ->
                             val song = favoriteSongs[index]
                             if (song != null) {
+                                val isDownloaded = song.navidromeId != null && song.navidromeId in downloadedNavidromeIds
+                                val isOfflineUnavailable = !isOnline && song.navidromeId != null && song.navidromeId !in downloadedNavidromeIds
+
                                 LibraryPlaybackAwareSongItem(
                                     song = song,
                                     playerViewModel = playerViewModel,
@@ -256,10 +261,14 @@ fun LibraryFavoritesTab(
                                     isSelected = selectedSongIds.contains(song.id),
                                     selectionIndex = if (isSelectionMode) getSelectionIndex(song.id) else null,
                                     isSelectionMode = isSelectionMode,
+                                    isDownloaded = isDownloaded,
+                                    isOfflineUnavailable = isOfflineUnavailable,
                                     onLongPress = { onSongLongPress(song) },
                                     onClick = {
                                         if (isSelectionMode) {
                                             onSongSelectionToggle(song)
+                                        } else if (isOfflineUnavailable) {
+                                            playerViewModel.notifyOfflineUnavailable()
                                         } else {
                                             playerViewModel.showAndPlaySongFromFavorites(song)
                                         }
@@ -309,6 +318,8 @@ fun LibrarySongsTabPaginated(
 ) {
     val listState = rememberLazyListState()
     val pullToRefreshState = rememberPullToRefreshState()
+    val downloadedNavidromeIds by playerViewModel.downloadedNavidromeIds.collectAsStateWithLifecycle()
+    val isOnline by playerViewModel.isOnline.collectAsStateWithLifecycle()
 
     when {
         paginatedSongs.loadState.refresh is LoadState.Loading && paginatedSongs.itemCount == 0 -> {
@@ -437,12 +448,18 @@ fun LibrarySongsTabPaginated(
                                 val song = paginatedSongs[index]
                                 if (song != null) {
                                     val isPlayingThisSong = song.id == stablePlayerState.currentSong?.id && stablePlayerState.isPlaying
+                                    val isDownloaded = song.navidromeId != null && song.navidromeId in downloadedNavidromeIds
+                                    val isOfflineUnavailable = !isOnline && song.navidromeId != null && song.navidromeId !in downloadedNavidromeIds
 
                                     val rememberedOnMoreOptionsClick: (Song) -> Unit = remember(onMoreOptionsClick) {
                                         { songFromListItem -> onMoreOptionsClick(songFromListItem) }
                                     }
-                                    val rememberedOnClick: () -> Unit = remember(song) {
-                                        { playerViewModel.showAndPlaySongFromLibrary(song) }
+                                    val rememberedOnClick: () -> Unit = remember(song, isOfflineUnavailable) {
+                                        if (isOfflineUnavailable) {
+                                            { playerViewModel.notifyOfflineUnavailable() }
+                                        } else {
+                                            { playerViewModel.showAndPlaySongFromLibrary(song) }
+                                        }
                                     }
 
                                     EnhancedSongListItem(
@@ -450,6 +467,8 @@ fun LibrarySongsTabPaginated(
                                         isPlaying = isPlayingThisSong,
                                         isCurrentSong = stablePlayerState.currentSong?.id == song.id,
                                         isLoading = false,
+                                        isDownloaded = isDownloaded,
+                                        isOfflineUnavailable = isOfflineUnavailable,
                                         onMoreOptionsClick = rememberedOnMoreOptionsClick,
                                         onClick = rememberedOnClick
                                     )

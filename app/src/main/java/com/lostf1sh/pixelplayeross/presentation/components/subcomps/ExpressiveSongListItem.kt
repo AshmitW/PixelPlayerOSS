@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -22,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -40,13 +42,17 @@ import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 fun ExpressiveSongListItem(
     song: Song,
     isPlaying: Boolean = false,
+    isDownloaded: Boolean = false,
+    isOfflineUnavailable: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
         onClick = onClick,
         color = Color.Transparent,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(if (isOfflineUnavailable) 0.4f else 1f)
     ) {
         Row(
             modifier = Modifier
@@ -92,6 +98,16 @@ fun ExpressiveSongListItem(
             }
 
             Spacer(modifier = Modifier.width(8.dp))
+
+            if (isDownloaded) {
+                Icon(
+                    imageVector = Icons.Rounded.DownloadDone,
+                    contentDescription = stringResource(R.string.cd_downloaded),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
 
             if (isPlaying) {
                 Icon(

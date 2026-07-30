@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -102,6 +104,8 @@ fun EnhancedSongListItem(
     selectionIndex: Int? = null,
     isSelectionMode: Boolean = false,
     showMoreOptionsButton: Boolean = true,
+    isDownloaded: Boolean = false,
+    isOfflineUnavailable: Boolean = false,
     onLongPress: () -> Unit = {},
     onMoreOptionsClick: (Song) -> Unit,
     onClick: () -> Unit
@@ -243,6 +247,7 @@ fun EnhancedSongListItem(
             modifier = modifier
                 .fillMaxWidth()
                 .scale(selectionScale)
+                .alpha(if (isOfflineUnavailable) 0.4f else 1f)
                 .clip(surfaceShape)
                 .then(
                     if (showSelectionDecoration) {
@@ -368,8 +373,24 @@ fun EnhancedSongListItem(
                     )
                 }
                 
+                val showDownloadedBadge = isDownloaded && !isSelectionMode
                 val showPlayingIndicator = isCurrentSong && !isSelectionMode
                 val showTrailingAction = showMoreOptionsButton && !isSelectionMode
+
+                if (showDownloadedBadge) {
+                     Icon(
+                         imageVector = Icons.Rounded.DownloadDone,
+                         contentDescription = stringResource(R.string.cd_downloaded),
+                         tint = MaterialTheme.colorScheme.primary,
+                         modifier = Modifier
+                             .padding(start = 8.dp)
+                             .size(18.dp)
+                     )
+                }
+
+                if (showDownloadedBadge && (showPlayingIndicator || showTrailingAction)) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
 
                 if (showPlayingIndicator) {
                      PlayingEqIcon(

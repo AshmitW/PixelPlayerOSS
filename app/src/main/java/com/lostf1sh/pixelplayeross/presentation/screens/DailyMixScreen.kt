@@ -159,6 +159,7 @@ fun DailyMixScreen(
                 showPlaylistBottomSheet = true;
             },
             onDeleteFromDevice = playerViewModel::deleteFromDevice,
+            playerViewModel = playerViewModel,
             onNavigateToAlbum = {
                 navController.navigateSafely(Screen.AlbumDetail.createRoute(song.albumId))
                 showSongInfoSheet = false

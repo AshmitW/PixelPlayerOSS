@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MusicNote
@@ -78,6 +80,7 @@ import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.lostf1sh.pixelplayeross.data.media.CoverArtUpdate
+import com.lostf1sh.pixelplayeross.presentation.viewmodel.PlayerViewModel
 import com.lostf1sh.pixelplayeross.presentation.viewmodel.SongInfoBottomSheetViewModel
 import com.lostf1sh.pixelplayeross.presentation.viewmodel.SongInfoBottomSheetViewModel.ToneTarget
 import kotlinx.coroutines.launch
@@ -120,9 +123,18 @@ fun SongInfoBottomSheet(
         coverArtUpdate: CoverArtUpdate?
     ) -> Unit,
     removeFromListTrigger: () -> Unit,
+    playerViewModel: PlayerViewModel,
     songInfoViewModel: SongInfoBottomSheetViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val downloadedNavidromeIds by playerViewModel.downloadedNavidromeIds.collectAsStateWithLifecycle()
+    val isDownloaded = song.navidromeId != null && song.navidromeId in downloadedNavidromeIds
+    val onToggleDownload: () -> Unit = {
+        val navidromeId = song.navidromeId
+        if (navidromeId != null) {
+            if (isDownloaded) playerViewModel.unpinSong(navidromeId) else playerViewModel.pinSong(navidromeId)
+        }
+    }
     var showEditSheet by remember { mutableStateOf(false) }
     var showArtistPicker by remember { mutableStateOf(false) }
     var showTonePickerDialog by remember { mutableStateOf(false) }
@@ -253,6 +265,27 @@ fun SongInfoBottomSheet(
             cornerRadiusTR = favoriteButtonCornerRadius, smoothnessAsPercentBR = 60, cornerRadiusBR = favoriteButtonCornerRadius,
             smoothnessAsPercentTL = 60, cornerRadiusTL = favoriteButtonCornerRadius, smoothnessAsPercentBL = 60,
             cornerRadiusBL = favoriteButtonCornerRadius, smoothnessAsPercentTR = 60
+        )
+    }
+
+    val showDownloadToggle = song.navidromeId != null
+    val downloadButtonCornerRadius by animateDpAsState(
+        targetValue = if (isDownloaded) evenCornerRadiusElems else 60.dp,
+        animationSpec = tween(durationMillis = 300), label = "DownloadCornerAnimation"
+    )
+    val downloadButtonContainerColor by animateColorAsState(
+        targetValue = if (isDownloaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        animationSpec = tween(durationMillis = 300), label = "DownloadContainerColorAnimation"
+    )
+    val downloadButtonContentColor by animateColorAsState(
+        targetValue = if (isDownloaded) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(durationMillis = 300), label = "DownloadContentColorAnimation"
+    )
+    val downloadButtonShape = remember(downloadButtonCornerRadius) {
+        AbsoluteSmoothCornerShape(
+            cornerRadiusTR = downloadButtonCornerRadius, smoothnessAsPercentBR = 60, cornerRadiusBR = downloadButtonCornerRadius,
+            smoothnessAsPercentTL = 60, cornerRadiusTL = downloadButtonCornerRadius, smoothnessAsPercentBL = 60,
+            cornerRadiusBL = downloadButtonCornerRadius, smoothnessAsPercentTR = 60
         )
     }
     val infoSegmentContainerShape = remember {
@@ -394,7 +427,7 @@ fun SongInfoBottomSheet(
                                             ) {
                                                 MediumExtendedFloatingActionButton(
                                                     modifier = Modifier
-                                                        .weight(0.5f)
+                                                        .weight(if (showDownloadToggle) 0.4f else 0.5f)
                                                         .fillMaxHeight(),
                                                     onClick = onPlaySong,
                                                     elevation = FloatingActionButtonDefaults.elevation(0.dp),
@@ -412,7 +445,7 @@ fun SongInfoBottomSheet(
 
                                                 FilledIconButton(
                                                     modifier = Modifier
-                                                        .weight(0.25f)
+                                                        .weight(if (showDownloadToggle) 0.2f else 0.25f)
                                                         .fillMaxHeight(),
                                                     onClick = onToggleFavorite,
                                                     shape = favoriteButtonShape,
@@ -430,9 +463,31 @@ fun SongInfoBottomSheet(
                                                     )
                                                 }
 
+                                                if (showDownloadToggle) {
+                                                    FilledIconButton(
+                                                        modifier = Modifier
+                                                            .weight(0.2f)
+                                                            .fillMaxHeight(),
+                                                        onClick = onToggleDownload,
+                                                        shape = downloadButtonShape,
+                                                        colors = IconButtonDefaults.filledIconButtonColors(
+                                                            containerColor = downloadButtonContainerColor,
+                                                            contentColor = downloadButtonContentColor
+                                                        )
+                                                    ) {
+                                                        Icon(
+                                                            modifier = Modifier.size(FloatingActionButtonDefaults.LargeIconSize),
+                                                            imageVector = if (isDownloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download,
+                                                            contentDescription = stringResource(
+                                                                if (isDownloaded) R.string.cd_remove_download else R.string.cd_download
+                                                            )
+                                                        )
+                                                    }
+                                                }
+
                                                 FilledTonalIconButton(
                                                     modifier = Modifier
-                                                        .weight(0.25f)
+                                                        .weight(if (showDownloadToggle) 0.2f else 0.25f)
                                                         .fillMaxHeight(),
                                                     onClick = {
                                                         try {
