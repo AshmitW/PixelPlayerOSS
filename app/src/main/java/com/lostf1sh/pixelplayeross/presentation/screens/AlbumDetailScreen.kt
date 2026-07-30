@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -40,6 +41,7 @@ import androidx.compose.material3.LargeExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -93,13 +95,17 @@ import com.lostf1sh.pixelplayeross.presentation.components.PlaylistBottomSheet
 import com.lostf1sh.pixelplayeross.presentation.components.SmartImage
 import com.lostf1sh.pixelplayeross.presentation.components.SongInfoBottomSheet
 import com.lostf1sh.pixelplayeross.presentation.components.resolveNavBarOccupiedHeight
+import com.lostf1sh.pixelplayeross.presentation.components.subcomps.DownloadPinButton
+import com.lostf1sh.pixelplayeross.presentation.components.subcomps.DownloadPinState
 import com.lostf1sh.pixelplayeross.presentation.components.subcomps.EnhancedSongListItem
 import com.lostf1sh.pixelplayeross.presentation.navigation.Screen
 import com.lostf1sh.pixelplayeross.presentation.viewmodel.AlbumDetailViewModel
+import com.lostf1sh.pixelplayeross.presentation.viewmodel.OfflineViewModel
 import com.lostf1sh.pixelplayeross.presentation.viewmodel.PlayerViewModel
 import com.lostf1sh.pixelplayeross.presentation.viewmodel.PlaylistViewModel
 import com.lostf1sh.pixelplayeross.utils.formatSongCount
 import com.lostf1sh.pixelplayeross.utils.shapes.RoundedStarShape
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
@@ -115,7 +121,8 @@ fun AlbumDetailScreen(
     navController: NavController,
     playerViewModel: PlayerViewModel,
     viewModel: AlbumDetailViewModel = hiltViewModel(),
-    playlistViewModel: PlaylistViewModel = hiltViewModel()
+    playlistViewModel: PlaylistViewModel = hiltViewModel(),
+    offlineViewModel: OfflineViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
@@ -199,6 +206,18 @@ fun AlbumDetailScreen(
             uiState.album != null -> {
                 val album = uiState.album!!
                 val songs = uiState.songs
+                // Only Navidrome-sourced albums are downloadable — this checks every song
+                // carries a navidromeId rather than looking at the (unified, source-agnostic)
+                // album id, since a mixed/empty list must not show the button.
+                val isNavidromeAlbum = songs.isNotEmpty() && songs.all { it.navidromeId != null }
+                val albumDownloadPinState by remember(offlineViewModel, isNavidromeAlbum) {
+                    if (isNavidromeAlbum) {
+                        offlineViewModel.forAlbum(viewModel.uiState.map { it.songs })
+                    } else {
+                        kotlinx.coroutines.flow.flowOf(DownloadPinState.NotPinned)
+                    }
+                }.collectAsStateWithLifecycle(DownloadPinState.NotPinned)
+                var showRemoveAlbumDownloadConfirmation by remember { mutableStateOf(false) }
                 val songsByDisc = remember(songs) {
                     songs.groupBy { it.discNumber ?: 1 }
                 }
@@ -395,7 +414,10 @@ fun AlbumDetailScreen(
                                     val randomSong = songs.random()
                                     playerViewModel.showAndPlaySong(randomSong, songs)
                                 }
-                            }
+                            },
+                            downloadPinState = if (isNavidromeAlbum) albumDownloadPinState else null,
+                            onDownloadPinClick = { offlineViewModel.pinAlbum(songs) },
+                            onDownloadUnpinClick = { showRemoveAlbumDownloadConfirmation = true }
                         )
                     } else {
                         CollapsingAlbumTopBar(
@@ -418,6 +440,29 @@ fun AlbumDetailScreen(
                             }
                         )
                     }
+                }
+
+                if (showRemoveAlbumDownloadConfirmation) {
+                    AlertDialog(
+                        onDismissRequest = { showRemoveAlbumDownloadConfirmation = false },
+                        title = { Text(stringResource(R.string.download_remove_confirm_title)) },
+                        text = { Text(stringResource(R.string.download_remove_confirm_body)) },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    offlineViewModel.unpinAlbum(songs)
+                                    showRemoveAlbumDownloadConfirmation = false
+                                }
+                            ) {
+                                Text(stringResource(R.string.delete_action))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showRemoveAlbumDownloadConfirmation = false }) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -531,7 +576,10 @@ private fun SharedAlbumTopBarProbe(
     headerImageRequestSize: Size,
     onHeaderArtworkState: ((AsyncImagePainter.State) -> Unit)? = null,
     onBackPressed: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    downloadPinState: DownloadPinState? = null,
+    onDownloadPinClick: () -> Unit = {},
+    onDownloadUnpinClick: () -> Unit = {}
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
     val statusBarColor =
@@ -621,7 +669,18 @@ private fun SharedAlbumTopBarProbe(
             contentColor = MaterialTheme.colorScheme.onSurface,
             subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant,
             fadeSubtitleOnCollapse = false,
-            syncStatusBarWithContainer = false
+            syncStatusBarWithContainer = false,
+            actions = {
+                if (downloadPinState != null) {
+                    DownloadPinButton(
+                        state = downloadPinState,
+                        onPin = onDownloadPinClick,
+                        onUnpin = onDownloadUnpinClick,
+                        contentDescription = stringResource(R.string.action_download_album),
+                        modifier = Modifier.padding(end = 12.dp)
+                    )
+                }
+            }
         )
 
         LargeExtendedFloatingActionButton(

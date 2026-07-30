@@ -132,9 +132,13 @@ import com.lostf1sh.pixelplayeross.data.model.isSmartPlaylist
 import com.lostf1sh.pixelplayeross.data.model.isNavidromeBacked
 import com.lostf1sh.pixelplayeross.data.navidrome.NavidromePlaylistSyncManager
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.lostf1sh.pixelplayeross.presentation.components.rememberModalSheetState
+import com.lostf1sh.pixelplayeross.presentation.components.subcomps.DownloadPinButton
+import com.lostf1sh.pixelplayeross.presentation.components.subcomps.DownloadPinState
+import com.lostf1sh.pixelplayeross.presentation.viewmodel.OfflineViewModel
 import kotlinx.collections.immutable.persistentListOf
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -149,6 +153,7 @@ fun PlaylistDetailScreen(
     onDeletePlayListClick: () -> Unit,
     playerViewModel: PlayerViewModel,
     playlistViewModel: PlaylistViewModel = hiltViewModel(),
+    offlineViewModel: OfflineViewModel = hiltViewModel(),
     navController: NavController
 ) {
     val uiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
@@ -188,6 +193,21 @@ fun PlaylistDetailScreen(
     val isSmartPlaylist = currentPlaylist?.isSmartPlaylist == true
     val isEditablePlaylist = !isFolderPlaylist && !isSmartPlaylist
     val songsInPlaylist = uiState.currentPlaylistSongs
+    val isNavidromePlaylist = currentPlaylist?.isNavidromeBacked == true &&
+        currentPlaylist.id.startsWith(NavidromePlaylistSyncManager.SERVER_PREFIX)
+    val navidromePlaylistId = currentPlaylist?.id?.takeIf { isNavidromePlaylist }
+        ?.removePrefix(NavidromePlaylistSyncManager.SERVER_PREFIX)
+    val playlistDownloadPinState by remember(offlineViewModel, navidromePlaylistId) {
+        if (navidromePlaylistId != null) {
+            offlineViewModel.forPlaylist(
+                navidromePlaylistId,
+                playlistViewModel.uiState.map { state -> state.currentPlaylistSongs.mapNotNull { it.navidromeId } }
+            )
+        } else {
+            flowOf(DownloadPinState.NotPinned)
+        }
+    }.collectAsStateWithLifecycle(DownloadPinState.NotPinned)
+    var showRemoveDownloadConfirmation by remember { mutableStateOf(false) }
 
     LaunchedEffect(playlistId) {
         playlistViewModel.loadPlaylistDetails(playlistId)
@@ -436,6 +456,15 @@ fun PlaylistDetailScreen(
                         )
                         Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                         Text(shuffleLabel)
+                    }
+                    if (navidromePlaylistId != null) {
+                        DownloadPinButton(
+                            state = playlistDownloadPinState,
+                            onPin = { offlineViewModel.pinPlaylist(navidromePlaylistId) },
+                            onUnpin = { showRemoveDownloadConfirmation = true },
+                            contentDescription = stringResource(R.string.action_download_playlist),
+                            size = 76.dp
+                        )
                     }
                 }
 
@@ -856,6 +885,29 @@ fun PlaylistDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        )
+    }
+
+    if (showRemoveDownloadConfirmation && navidromePlaylistId != null) {
+        AlertDialog(
+            onDismissRequest = { showRemoveDownloadConfirmation = false },
+            title = { Text(stringResource(R.string.download_remove_confirm_title)) },
+            text = { Text(stringResource(R.string.download_remove_confirm_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        offlineViewModel.unpinPlaylist(navidromePlaylistId)
+                        showRemoveDownloadConfirmation = false
+                    }
+                ) {
+                    Text(stringResource(R.string.delete_action), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveDownloadConfirmation = false }) {
                     Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

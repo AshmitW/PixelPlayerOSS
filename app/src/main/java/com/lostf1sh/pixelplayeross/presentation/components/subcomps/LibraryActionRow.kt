@@ -102,7 +102,11 @@ fun LibraryActionRow(
     isShuffleEnabled: Boolean = false,
     showStorageFilterButton: Boolean = false,
     currentStorageFilter: com.lostf1sh.pixelplayeross.data.model.StorageFilter = com.lostf1sh.pixelplayeross.data.model.StorageFilter.ALL,
-    onStorageFilterClick: () -> Unit = {}
+    onStorageFilterClick: () -> Unit = {},
+    showDownloadButton: Boolean = false,
+    downloadPinState: DownloadPinState = DownloadPinState.NotPinned,
+    onDownloadPinClick: () -> Unit = {},
+    onDownloadUnpinClick: () -> Unit = {}
 ) {
     val shouldShowImport = isPlaylistTab && showImportButton
 
@@ -381,6 +385,17 @@ fun LibraryActionRow(
                     )
                 }
             }
+        }
+
+        if (showDownloadButton) {
+            Spacer(modifier = Modifier.width(8.dp))
+            DownloadPinButton(
+                state = downloadPinState,
+                onPin = onDownloadPinClick,
+                onUnpin = onDownloadUnpinClick,
+                contentDescription = stringResource(R.string.action_download_liked),
+                size = genHeight
+            )
         }
     }
 }

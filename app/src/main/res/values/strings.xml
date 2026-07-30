@@ -220,4 +220,11 @@
     <string name="download_notification_progress">%1$d of %2$d songs</string>
     <string name="download_notification_progress_with_title">%1$s (%2$d of %3$d)</string>
 
+    <string name="action_download_playlist">Download playlist for offline listening</string>
+    <string name="action_download_album">Download album for offline listening</string>
+    <string name="action_download_liked">Download liked songs for offline listening</string>
+    <string name="download_remove_confirm_title">Remove downloaded copy?</string>
+    <string name="download_remove_confirm_body">This removes the offline copies of these songs from your device. You can download them again anytime.</string>
+    <string name="cd_download_progress">Downloading, %1$d of %2$d songs</string>
+
 </resources>

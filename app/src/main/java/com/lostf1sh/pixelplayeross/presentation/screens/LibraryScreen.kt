@@ -177,6 +177,8 @@ import com.lostf1sh.pixelplayeross.data.worker.SyncProgress
 import com.lostf1sh.pixelplayeross.presentation.screens.search.components.GenreTypography
 import com.lostf1sh.pixelplayeross.presentation.components.SyncProgressBar
 import com.lostf1sh.pixelplayeross.presentation.viewmodel.LibraryViewModel
+import com.lostf1sh.pixelplayeross.presentation.viewmodel.OfflineViewModel
+import com.lostf1sh.pixelplayeross.presentation.components.subcomps.DownloadPinState
 import com.lostf1sh.pixelplayeross.utils.formatSongCount
 import androidx.paging.compose.collectAsLazyPagingItems
 import android.content.Intent
@@ -314,7 +316,8 @@ fun LibraryScreen(
     playerViewModel: PlayerViewModel = hiltViewModel(),
     playlistViewModel: PlaylistViewModel = hiltViewModel(),
     libraryViewModel: LibraryViewModel = hiltViewModel(),
-    songInfoBottomSheetViewModel: SongInfoBottomSheetViewModel = hiltViewModel()
+    songInfoBottomSheetViewModel: SongInfoBottomSheetViewModel = hiltViewModel(),
+    offlineViewModel: OfflineViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -391,6 +394,11 @@ fun LibraryScreen(
     var likedLocateAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var foldersLocateAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingFoldersLocatePath by remember { mutableStateOf<String?>(null) }
+
+    val isNavidromeLoggedIn by playerViewModel.navidromeLoggedInFlow.collectAsStateWithLifecycle()
+    val likedDownloadPinState by remember(offlineViewModel) { offlineViewModel.forFavorites() }
+        .collectAsStateWithLifecycle(DownloadPinState.NotPinned)
+    var showRemoveFavoritesDownloadConfirmation by remember { mutableStateOf(false) }
 
     val onSongLongPress: (Song) -> Unit = remember(multiSelectionState, haptic) {
         { song -> 
@@ -1000,7 +1008,11 @@ fun LibraryScreen(
                                             currentTabId == LibraryTabId.LIKED ||
                                             (ENABLE_FOLDERS_STORAGE_FILTER && currentTabId == LibraryTabId.FOLDERS),
                                     currentStorageFilter = playerUiState.currentStorageFilter,
-                                    onStorageFilterClick = { playerViewModel.toggleStorageFilter() }
+                                    onStorageFilterClick = { playerViewModel.toggleStorageFilter() },
+                                    showDownloadButton = currentTabId == LibraryTabId.LIKED && isNavidromeLoggedIn,
+                                    downloadPinState = likedDownloadPinState,
+                                    onDownloadPinClick = { offlineViewModel.pinFavorites() },
+                                    onDownloadUnpinClick = { showRemoveFavoritesDownloadConfirmation = true }
                                 )
                             }
                         }
@@ -1730,6 +1742,29 @@ fun LibraryScreen(
                     pendingMergePlaylistIds = emptyList()
                     mergePlaylistName = ""
                 }) {
+                    Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        )
+    }
+
+    if (showRemoveFavoritesDownloadConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showRemoveFavoritesDownloadConfirmation = false },
+            title = { Text(stringResource(R.string.download_remove_confirm_title)) },
+            text = { Text(stringResource(R.string.download_remove_confirm_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        offlineViewModel.unpinFavorites()
+                        showRemoveFavoritesDownloadConfirmation = false
+                    }
+                ) {
+                    Text(stringResource(R.string.delete_action), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveFavoritesDownloadConfirmation = false }) {
                     Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
