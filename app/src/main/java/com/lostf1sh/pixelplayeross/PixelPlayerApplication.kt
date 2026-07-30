@@ -12,6 +12,8 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import com.lostf1sh.pixelplayeross.data.navidrome.NavidromeRepository
+import com.lostf1sh.pixelplayeross.data.offline.NavidromeOfflineManager
 import com.lostf1sh.pixelplayeross.data.preferences.UserPreferencesRepository
 import com.lostf1sh.pixelplayeross.data.repository.ArtistImageRepository
 import com.lostf1sh.pixelplayeross.presentation.viewmodel.LibraryStateHolder
@@ -21,6 +23,7 @@ import com.lostf1sh.pixelplayeross.utils.AlbumArtUtils
 import com.lostf1sh.pixelplayeross.utils.CrashHandler
 import com.lostf1sh.pixelplayeross.utils.MediaMetadataRetrieverPool
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -61,6 +64,12 @@ class PixelPlayerApplication : Application(), ImageLoaderFactory, Configuration.
 
     @Inject
     lateinit var syncManager: dagger.Lazy<com.lostf1sh.pixelplayeross.data.worker.SyncManager>
+
+    @Inject
+    lateinit var navidromeRepository: dagger.Lazy<NavidromeRepository>
+
+    @Inject
+    lateinit var navidromeOfflineManager: dagger.Lazy<NavidromeOfflineManager>
 
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -115,6 +124,18 @@ class PixelPlayerApplication : Application(), ImageLoaderFactory, Configuration.
             }.getOrNull()
             if (savedLimit != null) {
                 AlbumArtCacheManager.configuredCacheLimitMb = savedLimit.toLong()
+            }
+        }
+
+        startupScope.launch {
+            try {
+                if (navidromeRepository.get().isLoggedIn) {
+                    navidromeOfflineManager.get().scheduleDownloads()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to resume Navidrome offline downloads on startup")
             }
         }
     }

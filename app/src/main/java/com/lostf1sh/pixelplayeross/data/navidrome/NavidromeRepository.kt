@@ -30,11 +30,13 @@ import com.lostf1sh.pixelplayeross.data.navidrome.model.NavidromeSong
 import com.lostf1sh.pixelplayeross.data.navidrome.model.navidromeLyricsToText
 import com.lostf1sh.pixelplayeross.data.navidrome.model.pickBestNavidromeLyrics
 import com.lostf1sh.pixelplayeross.data.network.navidrome.NavidromeApiService
+import com.lostf1sh.pixelplayeross.data.offline.NavidromeOfflineManager
 import com.lostf1sh.pixelplayeross.data.network.navidrome.NavidromeResponseParser
 import com.lostf1sh.pixelplayeross.data.preferences.PlaylistPreferencesRepository
 import com.lostf1sh.pixelplayeross.data.preferences.UserPreferencesRepository
 import com.lostf1sh.pixelplayeross.data.stream.BulkSyncResult
 import com.lostf1sh.pixelplayeross.data.stream.CloudMusicUtils
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +79,7 @@ class NavidromeRepository @Inject constructor(
     private val localPlaylistDao: LocalPlaylistDao,
     private val playlistPreferencesRepository: PlaylistPreferencesRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val offlineManager: Lazy<NavidromeOfflineManager>,
     @ApplicationContext private val context: Context
 ) {
     companion object {
@@ -271,6 +274,15 @@ class NavidromeRepository @Inject constructor(
         dao.clearPendingFavorites()
         dao.clearPendingPlaylistDeletes()
         userPreferencesRepository.clearNavidromeSelectedMusicFolderIds()
+
+        try {
+            offlineManager.get().onLogout()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "$TAG: offline manager cleanup on logout failed")
+        }
+
         _isLoggedInFlow.value = false
     }
 
@@ -439,6 +451,14 @@ class NavidromeRepository @Inject constructor(
                     updateAppPlaylistForNavidromePlaylist(playlistId, playlistName, emptyList())
                 } else {
                     Timber.w("$TAG: songJsons was not empty (${songJsons.size}) but entities was empty. Parsing issue?")
+                }
+
+                try {
+                    offlineManager.get().reconcile()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "$TAG: offline reconcile failed after playlist songs sync")
                 }
 
                 Timber.d("$TAG: Synced ${entities.size} songs for playlist $playlistId")
@@ -668,6 +688,14 @@ class NavidromeRepository @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "$TAG: favorites sync failed, continuing")
+            }
+
+            try {
+                offlineManager.get().reconcile()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "$TAG: offline reconcile failed after full sync")
             }
 
             onProgress?.invoke(1f, context.getString(R.string.dash_status_sync_complete))
@@ -990,6 +1018,15 @@ class NavidromeRepository @Inject constructor(
         if (pendingOps.isNotEmpty()) {
             favoritesSyncManager.schedulePush()
         }
+
+        try {
+            offlineManager.get().reconcile()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "$TAG: offline reconcile failed after favorites sync")
+        }
+
         Timber.d("$TAG: favorites sync done (server=${serverStarredIds.size}, added=${existingIds.size}, removed=${reconciliation.toUnfavorite.size})")
     }
 
