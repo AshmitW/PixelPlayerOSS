@@ -21,6 +21,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -35,6 +37,10 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.flac.FlacExtractor
 import com.lostf1sh.pixelplayeross.data.model.TransitionSettings
+import com.lostf1sh.pixelplayeross.data.offline.DownloadCache
+import com.lostf1sh.pixelplayeross.data.offline.NavidromeCacheKeys
+import com.lostf1sh.pixelplayeross.data.offline.SchemeRoutingDataSource
+import com.lostf1sh.pixelplayeross.data.offline.StreamCache
 import com.lostf1sh.pixelplayeross.utils.envelope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -167,7 +173,9 @@ internal fun shouldDisableAudioOffloadOnEarlyBuffering(
 class DualPlayerEngine @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val navidromeStreamProxy: NavidromeStreamProxy,
-    private val jellyfinStreamProxy: com.lostf1sh.pixelplayeross.data.jellyfin.JellyfinStreamProxy
+    private val jellyfinStreamProxy: com.lostf1sh.pixelplayeross.data.jellyfin.JellyfinStreamProxy,
+    @DownloadCache private val downloadCache: SimpleCache,
+    @StreamCache private val streamCache: SimpleCache
 ) {
     private companion object {
         private const val AUDIO_OFFLOAD_STALL_FALLBACK_MS = 4_000L
@@ -881,6 +889,21 @@ class DualPlayerEngine @Inject constructor(
         
         val dataSourceFactory = DefaultDataSource.Factory(context)
         val resolvingFactory = ResolvingDataSource.Factory(dataSourceFactory, resolver)
+
+        // Read path for cached navidrome:// URIs: pinned downloads first (read-only, never
+        // written to by playback), then the write-through stream cache, then the proxy upstream.
+        val streamWriteFactory = CacheDataSource.Factory()
+            .setCache(streamCache)
+            .setCacheKeyFactory(NavidromeCacheKeys.CACHE_KEY_FACTORY)
+            .setUpstreamDataSourceFactory(resolvingFactory)
+        val downloadReadFactory = CacheDataSource.Factory()
+            .setCache(downloadCache)
+            .setCacheKeyFactory(NavidromeCacheKeys.CACHE_KEY_FACTORY)
+            .setCacheWriteDataSinkFactory(null)
+            .setUpstreamDataSourceFactory(streamWriteFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val routedFactory = SchemeRoutingDataSource.Factory(downloadReadFactory, resolvingFactory)
+
         val extractorsFactory = DefaultExtractorsFactory()
             .setMp3ExtractorFlags(Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
             .setFlacExtractorFlags(FlacExtractor.FLAG_DISABLE_ID3_METADATA)
@@ -888,7 +911,7 @@ class DualPlayerEngine @Inject constructor(
         val loadControl = buildAdaptiveLoadControl()
 
         return ExoPlayer.Builder(context, renderersFactory)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(resolvingFactory, extractorsFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(routedFactory, extractorsFactory))
             .setLoadControl(loadControl)
             .build().apply {
             sharedAudioSessionIdOrNull()?.let { setAudioSessionId(it) }
