@@ -215,4 +215,8 @@
     <string name="setcat_find_duplicates_title">Find duplicate tracks</string>
     <string name="setcat_find_duplicates_subtitle">Scan your library for tracks that appear more than once.</string>
 
+    <string name="download_notification_title">Downloading offline music</string>
+    <string name="download_notification_progress">%1$d of %2$d songs</string>
+    <string name="download_notification_progress_with_title">%1$s (%2$d of %3$d)</string>
+
 </resources>

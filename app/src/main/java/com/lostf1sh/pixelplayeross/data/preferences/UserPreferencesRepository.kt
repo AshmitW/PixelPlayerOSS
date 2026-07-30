@@ -220,6 +220,10 @@ constructor(
 
         val REPLAYGAIN_ENABLED = booleanPreferencesKey("replaygain_enabled")
         val REPLAYGAIN_USE_ALBUM_GAIN = booleanPreferencesKey("replaygain_use_album_gain")
+
+        val DOWNLOAD_QUALITY_TIER = stringPreferencesKey("download_quality_tier")
+        val DOWNLOAD_WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
+        val STREAM_CACHE_LIMIT_BYTES = longPreferencesKey("stream_cache_limit_bytes")
     }
 
     val appRebrandDialogShownFlow: Flow<Boolean> =
@@ -766,6 +770,35 @@ constructor(
         }
     }
 
+    /** Offline download quality tier: ORIGINAL, HIGH, MEDIUM, or LOW. */
+    val downloadQualityTierFlow: Flow<String> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.DOWNLOAD_QUALITY_TIER] ?: "ORIGINAL"
+        }
+
+    suspend fun setDownloadQualityTier(tier: String) {
+        dataStore.edit { preferences -> preferences[PreferencesKeys.DOWNLOAD_QUALITY_TIER] = tier }
+    }
+
+    val downloadWifiOnlyFlow: Flow<Boolean> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.DOWNLOAD_WIFI_ONLY] ?: true
+        }
+
+    suspend fun setDownloadWifiOnly(wifiOnly: Boolean) {
+        dataStore.edit { preferences -> preferences[PreferencesKeys.DOWNLOAD_WIFI_ONLY] = wifiOnly }
+    }
+
+    /** Max size of the Navidrome stream (non-pinned playback) cache, in bytes. Default 1 GiB. */
+    val streamCacheLimitBytesFlow: Flow<Long> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.STREAM_CACHE_LIMIT_BYTES] ?: DEFAULT_STREAM_CACHE_LIMIT_BYTES
+        }
+
+    suspend fun setStreamCacheLimitBytes(bytes: Long) {
+        dataStore.edit { preferences -> preferences[PreferencesKeys.STREAM_CACHE_LIMIT_BYTES] = bytes }
+    }
+
     val allowedDirectoriesFlow: Flow<Set<String>> =
             dataStore.data.map { preferences ->
                 preferences[PreferencesKeys.ALLOWED_DIRECTORIES] ?: emptySet()
@@ -1187,6 +1220,7 @@ constructor(
         /** Default word-based delimiters (matched case-insensitively with whitespace boundaries) */
         val DEFAULT_ARTIST_WORD_DELIMITERS = listOf("featuring", "feat.", "feat", "ft.", "ft", "vs.", "vs", "versus", "with", "prod.", "prod")
         const val DEFAULT_ALBUM_ART_CACHE_LIMIT_MB = 200
+        const val DEFAULT_STREAM_CACHE_LIMIT_BYTES = 1024L * 1024 * 1024
     }
 
     val navBarCornerRadiusFlow: Flow<Int> =

@@ -31,7 +31,8 @@ internal fun materializePins(inputs: PinInputs): Map<String, Int> {
             else -> Unit
         }
     }
-    return counts
+    // Defensive copy: callers must not be able to mutate the internal counts map.
+    return counts.toMap()
 }
 
 internal fun diffPins(current: Set<String>, desired: Map<String, Int>): PinDiff = PinDiff(

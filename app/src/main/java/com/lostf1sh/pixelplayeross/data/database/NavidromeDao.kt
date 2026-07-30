@@ -22,6 +22,15 @@ interface NavidromeDao {
     @Query("SELECT * FROM navidrome_songs WHERE playlist_id = :playlistId ORDER BY date_added DESC")
     fun getSongsByPlaylist(playlistId: String): Flow<List<NavidromeSongEntity>>
 
+    @Query("SELECT * FROM navidrome_songs WHERE playlist_id = :playlistId ORDER BY date_added DESC")
+    suspend fun getSongsByPlaylistOnce(playlistId: String): List<NavidromeSongEntity>
+
+    @Query("SELECT * FROM navidrome_songs WHERE album_id = :albumId")
+    suspend fun getSongsByAlbumIdOnce(albumId: String): List<NavidromeSongEntity>
+
+    @Query("SELECT DISTINCT navidrome_id FROM navidrome_songs WHERE playlist_id = '__library__'")
+    suspend fun getLibraryNavidromeIds(): List<String>
+
     @Query("SELECT COUNT(*) FROM navidrome_songs WHERE playlist_id = '__library__'")
     fun getLibrarySongCount(): Flow<Int>
 

@@ -66,6 +66,7 @@ class PixelPlayerApplication : Application(), ImageLoaderFactory, Configuration.
 
     companion object {
         const val NOTIFICATION_CHANNEL_ID = "pixelplayer_music_channel"
+        const val DOWNLOADS_CHANNEL_ID = "pixelplayer_downloads_channel"
     }
 
     private val appLifecycleObserver = object : DefaultLifecycleObserver {
@@ -93,8 +94,14 @@ class PixelPlayerApplication : Application(), ImageLoaderFactory, Configuration.
                 "PixelPlayerOSS Music Playback",
                 NotificationManager.IMPORTANCE_LOW
             )
+            val downloadsChannel = NotificationChannel(
+                DOWNLOADS_CHANNEL_ID,
+                "PixelPlayerOSS Downloads",
+                NotificationManager.IMPORTANCE_LOW
+            )
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.createNotificationChannel(channel)
+            notificationManager.createNotificationChannel(downloadsChannel)
         }
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)

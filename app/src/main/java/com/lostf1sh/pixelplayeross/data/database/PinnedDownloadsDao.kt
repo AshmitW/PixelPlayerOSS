@@ -67,6 +67,9 @@ interface PinnedDownloadsDao {
     @Query("UPDATE pinned_songs SET completedAt = :completedAt, sizeBytes = :sizeBytes WHERE navidromeId = :navidromeId")
     suspend fun markCompleted(navidromeId: String, completedAt: Long, sizeBytes: Long)
 
+    @Query("UPDATE pinned_songs SET refCount = :refCount WHERE navidromeId = :navidromeId")
+    suspend fun updateRefCount(navidromeId: String, refCount: Int)
+
     @Query("UPDATE pinned_songs SET qualityTier = :newTier, completedAt = NULL, sizeBytes = NULL")
     suspend fun resetAllForQuality(newTier: String)
 
