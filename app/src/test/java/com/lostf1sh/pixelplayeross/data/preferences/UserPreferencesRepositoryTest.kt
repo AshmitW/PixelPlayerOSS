@@ -1,6 +1,8 @@
 package com.lostf1sh.pixelplayeross.data.preferences
 
+import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -20,7 +22,8 @@ class UserPreferencesRepositoryTest {
                     scope = backgroundScope,
                     produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
                 ),
-                json = Json
+                json = Json,
+                context = mockk<Context>(relaxed = true)
             )
 
             repository.setInitialSetupDone(true)
@@ -44,7 +47,8 @@ class UserPreferencesRepositoryTest {
                     scope = backgroundScope,
                     produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
                 ),
-                json = Json
+                json = Json,
+                context = mockk<Context>(relaxed = true)
             )
 
             repository.setInitialSetupDone(true)
@@ -77,7 +81,8 @@ class UserPreferencesRepositoryTest {
                     scope = backgroundScope,
                     produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
                 ),
-                json = Json
+                json = Json,
+                context = mockk<Context>(relaxed = true)
             )
 
             repository.setNavBarCornerRadius(-1)
@@ -111,7 +116,8 @@ class UserPreferencesRepositoryTest {
                     scope = backgroundScope,
                     produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
                 ),
-                json = Json
+                json = Json,
+                context = mockk<Context>(relaxed = true)
             )
 
             assertTrue(repository.navidromeSelectedMusicFolderIdsFlow.first().isEmpty())

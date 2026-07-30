@@ -221,6 +221,8 @@
     <string name="dash_status_syncing">Syncing</string>
     <string name="dash_action_sync_library">Sync library</string>
     <string name="dash_action_disconnect">Disconnect</string>
+    <string name="dash_downloads_title">Downloads &amp; Storage</string>
+    <string name="dash_downloads_summary">%1$d songs downloaded · %2$s</string>
     <string name="dash_status_syncing_library">Syncing library…</string>
     <string name="dash_status_fetching_playlists">Fetching playlists…</string>
     <string name="dash_status_syncing_playlist_format">Syncing playlist: %1$s</string>
@@ -244,4 +246,18 @@
     <string name="cd_toggle_grid_list">Toggle grid/list view</string>
     <string name="cd_genre_illustration">Genre illustration</string>
     <string name="dash_last_synced_format">Last synced: %1$s</string>
+
+    <string name="downloads_storage_title">Downloads &amp; Storage</string>
+    <string name="downloads_storage_downloads_label">Downloads</string>
+    <string name="downloads_storage_cache_label">Stream cache</string>
+    <string name="downloads_queue_title">Download queue</string>
+    <string name="downloads_queue_progress">%1$d of %2$d downloaded</string>
+    <string name="downloads_queue_idle">All caught up</string>
+    <string name="downloads_collections_title">Pinned collections</string>
+    <string name="downloads_collections_empty">Nothing pinned for offline yet. Pin a playlist, album, or your Liked songs to download them here.</string>
+    <string name="downloads_collection_type_song">Song</string>
+    <string name="downloads_collection_type_album">Album</string>
+    <string name="downloads_collection_type_playlist">Playlist</string>
+    <string name="downloads_collection_type_favorites">Liked Songs</string>
+    <string name="downloads_collection_type_library">Entire library</string>
 </resources>

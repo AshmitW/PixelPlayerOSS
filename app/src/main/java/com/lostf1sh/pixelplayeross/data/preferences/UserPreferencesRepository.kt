@@ -20,6 +20,8 @@ import com.lostf1sh.pixelplayeross.data.model.LyricsSourcePreference
 import com.lostf1sh.pixelplayeross.data.model.TransitionSettings
 import com.lostf1sh.pixelplayeross.data.equalizer.EqualizerPreset
 import com.lostf1sh.pixelplayeross.data.model.StorageFilter
+import com.lostf1sh.pixelplayeross.data.offline.OfflineCacheModule
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.text.get
@@ -73,7 +75,8 @@ class UserPreferencesRepository
 @Inject
 constructor(
         private val dataStore: DataStore<Preferences>,
-        private val json: Json
+        private val json: Json,
+        @ApplicationContext private val context: Context
 ) {
 
     private val backupExcludedKeyNames = setOf(
@@ -797,6 +800,12 @@ constructor(
 
     suspend fun setStreamCacheLimitBytes(bytes: Long) {
         dataStore.edit { preferences -> preferences[PreferencesKeys.STREAM_CACHE_LIMIT_BYTES] = bytes }
+        // Mirror into plain SharedPreferences: OfflineCacheModule.provideStreamCache reads
+        // this synchronously at cache-construction time, so the new limit only takes
+        // effect on the next app start (the LRU evictor's budget is fixed for the cache's
+        // lifetime). See the read site for details.
+        context.getSharedPreferences(OfflineCacheModule.STREAM_CACHE_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putLong(OfflineCacheModule.STREAM_CACHE_PREFS_KEY, bytes).apply()
     }
 
     val allowedDirectoriesFlow: Flow<Set<String>> =

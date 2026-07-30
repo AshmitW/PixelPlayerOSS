@@ -326,6 +326,30 @@ class NavidromeOfflineManager @Inject constructor(
         removeAllNavResources(downloadCache)
     }
 
+    /**
+     * Pinned-song count and a total size estimate at [newTier], for the requality
+     * confirmation dialog in Settings. Uses each pinned song's *current* bitrate/duration
+     * from the Navidrome cache, not the tier it's currently downloaded at.
+     */
+    suspend fun estimateRequalifyBytes(newTier: String): Pair<Int, Long> {
+        val pinned = pinnedDownloadsDao.getPinnedSongsOnce()
+        if (pinned.isEmpty()) return 0 to 0L
+        val tierCap = maxBitRateForTier(newTier).takeIf { it > 0 }
+        val songs = navidromeDao.getSongsByNavidromeIds(pinned.map { it.navidromeId })
+        val bytes = songs.sumOf { estimateBytes(it.duration, it.bitRate, tierCap) }
+        return pinned.size to bytes
+    }
+
+    /** Size estimate for pinning the whole library at the currently selected quality tier. */
+    suspend fun estimateLibraryBytes(): Long {
+        val libraryIds = navidromeDao.getLibraryNavidromeIds()
+        if (libraryIds.isEmpty()) return 0L
+        val tier = userPreferencesRepository.downloadQualityTierFlow.first()
+        val tierCap = maxBitRateForTier(tier).takeIf { it > 0 }
+        val songs = navidromeDao.getSongsByNavidromeIds(libraryIds)
+        return songs.sumOf { estimateBytes(it.duration, it.bitRate, tierCap) }
+    }
+
     suspend fun clearStreamCache() {
         removeAllNavResources(streamCache)
     }

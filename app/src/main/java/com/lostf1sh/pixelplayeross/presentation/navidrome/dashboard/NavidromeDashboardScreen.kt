@@ -17,9 +17,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MusicNote
@@ -34,10 +36,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.text.format.Formatter
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.lostf1sh.pixelplayeross.R
 import com.lostf1sh.pixelplayeross.data.database.NavidromePlaylistEntity
@@ -58,9 +62,13 @@ import kotlinx.collections.immutable.toImmutableList
 @Composable
 fun NavidromeDashboardScreen(
     viewModel: NavidromeDashboardViewModel = hiltViewModel(),
-    onBack: () -> Unit
+    offlineViewModel: com.lostf1sh.pixelplayeross.presentation.viewmodel.OfflineViewModel = hiltViewModel(),
+    onBack: () -> Unit,
+    onNavigateToDownloads: () -> Unit
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val downloadedSongCount by offlineViewModel.downloadedSongCount.collectAsStateWithLifecycle()
+    val downloadedCacheBytes by offlineViewModel.downloadedCacheBytes.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
     val syncMessage by viewModel.syncMessage.collectAsStateWithLifecycle()
@@ -122,6 +130,8 @@ fun NavidromeDashboardScreen(
             librarySelectionNeedsSync = librarySelectionNeedsSync,
             username = viewModel.username,
             lastSyncTime = viewModel.lastSyncTime,
+            downloadedSongCount = downloadedSongCount,
+            downloadedCacheBytes = downloadedCacheBytes,
             onSyncAll = { viewModel.syncAllPlaylistsAndSongs() },
             onSelectMusicFolders = { viewModel.setSelectedMusicFolderIds(it) },
             onSyncPlaylist = { viewModel.syncPlaylistSongs(it) },
@@ -131,6 +141,7 @@ fun NavidromeDashboardScreen(
                 viewModel.logout()
                 onBack()
             },
+            onNavigateToDownloads = onNavigateToDownloads,
             cardShape = cardShape,
             paddingValues = paddingValues
         )
@@ -152,12 +163,15 @@ private fun DashboardContent(
     librarySelectionNeedsSync: Boolean,
     username: String?,
     lastSyncTime: Long,
+    downloadedSongCount: Int,
+    downloadedCacheBytes: Long,
     onSyncAll: () -> Unit,
     onSelectMusicFolders: (Set<String>) -> Unit,
     onSyncPlaylist: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onLoadPlaylistSongs: (NavidromePlaylistEntity) -> Unit,
     onLogout: () -> Unit,
+    onNavigateToDownloads: () -> Unit,
     cardShape: AbsoluteSmoothCornerShape,
     paddingValues: PaddingValues
 ) {
@@ -292,6 +306,15 @@ private fun DashboardContent(
             onSelectMusicFolders = onSelectMusicFolders,
             onSyncAll = onSyncAll,
             onLogout = onLogout,
+            cardShape = cardShape
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        DownloadsSummaryCard(
+            downloadedSongCount = downloadedSongCount,
+            downloadedCacheBytes = downloadedCacheBytes,
+            onClick = onNavigateToDownloads,
             cardShape = cardShape
         )
 
@@ -526,6 +549,73 @@ private fun SubsonicMenuCard(
                     Text(stringResource(R.string.dash_action_disconnect), fontFamily = RoundedSans)
                 }
             }
+        }
+    }
+}
+
+/** Dashboard entry point into [com.lostf1sh.pixelplayeross.presentation.navidrome.dashboard.DownloadsStorageScreen]. */
+@Composable
+private fun DownloadsSummaryCard(
+    downloadedSongCount: Int,
+    downloadedCacheBytes: Long,
+    onClick: () -> Unit,
+    cardShape: AbsoluteSmoothCornerShape
+) {
+    val context = LocalContext.current
+    val formattedSize = remember(downloadedCacheBytes) {
+        Formatter.formatShortFileSize(context, downloadedCacheBytes)
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clickable(onClick = onClick),
+        shape = cardShape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.dash_downloads_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontFamily = RoundedSans,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = stringResource(R.string.dash_downloads_summary, downloadedSongCount, formattedSize),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = RoundedSans,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

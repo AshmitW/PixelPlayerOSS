@@ -227,4 +227,12 @@
     <string name="download_remove_confirm_body">This removes the offline copies of these songs from your device. You can download them again anytime.</string>
     <string name="cd_download_progress">Downloading, %1$d of %2$d songs</string>
 
+    <string name="download_requality_confirm_title">Re-download at the new quality?</string>
+    <string name="download_requality_confirm_body">%1$d downloaded songs will be re-downloaded (~%2$s) at the new quality.</string>
+    <string name="download_everything_confirm_title">Download your whole library?</string>
+    <string name="download_everything_confirm_body">This downloads your entire library for offline listening (~%1$s) and keeps it in sync.</string>
+    <string name="download_remove_all">Remove all downloads</string>
+    <string name="download_remove_all_confirm_title">Remove all downloads?</string>
+    <string name="download_remove_all_confirm_body">This removes all downloaded songs (%1$s) and all download selections. Nothing will download again until you re-select playlists or songs. Continue?</string>
+
 </resources>

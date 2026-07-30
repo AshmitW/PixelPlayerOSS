@@ -43,6 +43,15 @@ interface NavidromeDao {
     @Query("SELECT * FROM navidrome_songs WHERE navidrome_id = :navidromeId LIMIT 1")
     suspend fun getSongByNavidromeId(navidromeId: String): NavidromeSongEntity?
 
+    /**
+     * Batched lookup for offline-size estimates (quality-change and download-everything
+     * confirmations). GROUP BY collapses the per-playlist duplicate rows a song can have
+     * in this cache down to one row per navidrome_id — duration/bitRate don't vary by
+     * which playlist copy is picked.
+     */
+    @Query("SELECT * FROM navidrome_songs WHERE navidrome_id IN (:navidromeIds) GROUP BY navidrome_id")
+    suspend fun getSongsByNavidromeIds(navidromeIds: List<String>): List<NavidromeSongEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSongs(songs: List<NavidromeSongEntity>)
 

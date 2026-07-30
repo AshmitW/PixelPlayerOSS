@@ -73,12 +73,16 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ButtonDefaults
@@ -215,6 +219,12 @@ fun SettingsCategoryScreen(
     var showRegenerateAllPalettesDialog by remember { mutableStateOf(false) }
     var showExportDataDialog by remember { mutableStateOf(false) }
     var showImportFlow by remember { mutableStateOf(false) }
+    var pendingQualityTier by remember { mutableStateOf<String?>(null) }
+    var pendingQualityCount by remember { mutableStateOf(0) }
+    var pendingQualityBytes by remember { mutableStateOf(0L) }
+    var showDownloadEverythingOnConfirm by remember { mutableStateOf(false) }
+    var pendingLibraryBytes by remember { mutableStateOf(0L) }
+    var showDownloadEverythingOffConfirm by remember { mutableStateOf(false) }
     var exportSections by remember { mutableStateOf(BackupSection.defaultSelection) }
     var importFileUri by remember { mutableStateOf<Uri?>(null) }
     var minSongDurationDraft by remember(uiState.minSongDuration) {
@@ -495,6 +505,78 @@ fun SettingsCategoryScreen(
                                     checked = uiState.externalArtistImagesEnabled,
                                     onCheckedChange = { settingsViewModel.setExternalArtistImagesEnabled(it) },
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_artist_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                            }
+
+                            SettingsSubsection(title = stringResource(R.string.setcat_downloads)) {
+                                val cacheSizeOptions = remember(context) {
+                                    listOf(512L, 1024L, 2048L, 4096L).associate { mb ->
+                                        val bytes = mb * 1024 * 1024
+                                        bytes.toString() to Formatter.formatShortFileSize(context, bytes)
+                                    }
+                                }
+                                ThemeSelectorItem(
+                                    label = stringResource(R.string.set_download_quality),
+                                    description = stringResource(R.string.set_download_quality_desc),
+                                    options = mapOf(
+                                        "ORIGINAL" to stringResource(R.string.set_download_quality_original),
+                                        "HIGH" to stringResource(R.string.set_download_quality_high),
+                                        "MEDIUM" to stringResource(R.string.set_download_quality_medium),
+                                        "LOW" to stringResource(R.string.set_download_quality_low)
+                                    ),
+                                    selectedKey = uiState.downloadQualityTier,
+                                    onSelectionChanged = { newTier ->
+                                        if (newTier != uiState.downloadQualityTier) {
+                                            coroutineScope.launch {
+                                                val (count, bytes) = settingsViewModel.estimateRequalifyBytes(newTier)
+                                                if (count == 0) {
+                                                    settingsViewModel.changeDownloadQualityTier(newTier)
+                                                } else {
+                                                    pendingQualityTier = newTier
+                                                    pendingQualityCount = count
+                                                    pendingQualityBytes = bytes
+                                                }
+                                            }
+                                        }
+                                    },
+                                    leadingIcon = { Icon(painterResource(R.drawable.outline_high_quality_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.set_download_wifi_only),
+                                    subtitle = stringResource(R.string.set_download_wifi_only_subtitle),
+                                    checked = uiState.downloadWifiOnly,
+                                    onCheckedChange = { settingsViewModel.setDownloadWifiOnly(it) },
+                                    leadingIcon = { Icon(Icons.Rounded.Wifi, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                ThemeSelectorItem(
+                                    label = stringResource(R.string.set_stream_cache_size),
+                                    description = stringResource(R.string.set_stream_cache_restart_note),
+                                    options = cacheSizeOptions,
+                                    selectedKey = uiState.streamCacheLimitBytes.toString(),
+                                    onSelectionChanged = { key -> settingsViewModel.setStreamCacheLimitBytes(key.toLong()) },
+                                    leadingIcon = { Icon(Icons.Rounded.Storage, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                                SettingsItem(
+                                    title = stringResource(R.string.set_clear_stream_cache),
+                                    subtitle = stringResource(R.string.set_clear_stream_cache_subtitle),
+                                    leadingIcon = { Icon(Icons.Outlined.ClearAll, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    onClick = { settingsViewModel.clearStreamCache() }
+                                )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.set_download_everything),
+                                    subtitle = stringResource(R.string.set_download_everything_subtitle),
+                                    checked = uiState.downloadEverythingEnabled,
+                                    onCheckedChange = { enabled ->
+                                        if (enabled) {
+                                            coroutineScope.launch {
+                                                pendingLibraryBytes = settingsViewModel.estimateLibraryBytes()
+                                                showDownloadEverythingOnConfirm = true
+                                            }
+                                        } else {
+                                            showDownloadEverythingOffConfirm = true
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.LibraryMusic, null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
 
@@ -1213,7 +1295,70 @@ fun SettingsCategoryScreen(
         )
     }
 
-    
+    if (pendingQualityTier != null) {
+        val newTier = pendingQualityTier!!
+        AlertDialog(
+            icon = { Icon(Icons.Rounded.Download, null) },
+            title = { Text(stringResource(R.string.download_requality_confirm_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.download_requality_confirm_body,
+                        pendingQualityCount,
+                        Formatter.formatShortFileSize(context, pendingQualityBytes)
+                    )
+                )
+            },
+            onDismissRequest = { pendingQualityTier = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    settingsViewModel.changeDownloadQualityTier(newTier)
+                    pendingQualityTier = null
+                }) { Text(stringResource(R.string.confirm), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            },
+            dismissButton = { TextButton(onClick = { pendingQualityTier = null }) { Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis) } }
+        )
+    }
+
+    if (showDownloadEverythingOnConfirm) {
+        AlertDialog(
+            icon = { Icon(Icons.Rounded.LibraryMusic, null) },
+            title = { Text(stringResource(R.string.download_everything_confirm_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.download_everything_confirm_body,
+                        Formatter.formatShortFileSize(context, pendingLibraryBytes)
+                    )
+                )
+            },
+            onDismissRequest = { showDownloadEverythingOnConfirm = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    settingsViewModel.setDownloadEverything(true)
+                    showDownloadEverythingOnConfirm = false
+                }) { Text(stringResource(R.string.confirm), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            },
+            dismissButton = { TextButton(onClick = { showDownloadEverythingOnConfirm = false }) { Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis) } }
+        )
+    }
+
+    if (showDownloadEverythingOffConfirm) {
+        AlertDialog(
+            icon = { Icon(Icons.Outlined.Warning, null) },
+            title = { Text(stringResource(R.string.download_remove_confirm_title)) },
+            text = { Text(stringResource(R.string.download_remove_confirm_body)) },
+            onDismissRequest = { showDownloadEverythingOffConfirm = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    settingsViewModel.setDownloadEverything(false)
+                    showDownloadEverythingOffConfirm = false
+                }) { Text(stringResource(R.string.delete_action), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            },
+            dismissButton = { TextButton(onClick = { showDownloadEverythingOffConfirm = false }) { Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis) } }
+        )
+    }
+
     if (showRebuildDatabaseWarning) {
         AlertDialog(
             icon = { Icon(Icons.Outlined.Warning, null, tint = MaterialTheme.colorScheme.error) },

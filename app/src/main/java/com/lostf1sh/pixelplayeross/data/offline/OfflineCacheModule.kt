@@ -31,6 +31,16 @@ object OfflineCacheModule {
 
     const val DEFAULT_STREAM_CACHE_BYTES = 1024L * 1024 * 1024
 
+    /**
+     * Plain SharedPreferences (not DataStore) mirror of the stream-cache-size pref.
+     * [provideStreamCache] below needs the value synchronously at cache construction time,
+     * which a suspending DataStore read can't provide from a Hilt @Provides function, so
+     * `UserPreferencesRepository.setStreamCacheLimitBytes` writes here in addition to
+     * DataStore whenever the user changes the setting.
+     */
+    const val STREAM_CACHE_PREFS_NAME = "offline_cache_prefs"
+    const val STREAM_CACHE_PREFS_KEY = "stream_cache_limit_bytes"
+
     @Singleton
     @Provides
     fun provideCacheDatabaseProvider(@ApplicationContext context: Context): StandaloneDatabaseProvider =
@@ -54,9 +64,16 @@ object OfflineCacheModule {
     fun provideStreamCache(
         @ApplicationContext context: Context,
         databaseProvider: StandaloneDatabaseProvider
-    ): SimpleCache = SimpleCache(
-        File(context.cacheDir, "navidrome_stream_cache"),
-        LeastRecentlyUsedCacheEvictor(DEFAULT_STREAM_CACHE_BYTES),
-        databaseProvider
-    )
+    ): SimpleCache {
+        // Construction-time-only read: the LRU evictor's byte budget is fixed for the
+        // cache's lifetime, so a size change made in Settings only takes effect on the
+        // next app start, once this @Provides function runs again from scratch.
+        val limitBytes = context.getSharedPreferences(STREAM_CACHE_PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong(STREAM_CACHE_PREFS_KEY, DEFAULT_STREAM_CACHE_BYTES)
+        return SimpleCache(
+            File(context.cacheDir, "navidrome_stream_cache"),
+            LeastRecentlyUsedCacheEvictor(limitBytes),
+            databaseProvider
+        )
+    }
 }

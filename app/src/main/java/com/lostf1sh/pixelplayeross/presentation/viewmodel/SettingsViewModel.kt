@@ -12,6 +12,8 @@ import com.lostf1sh.pixelplayeross.data.backup.model.BackupHistoryEntry
 import com.lostf1sh.pixelplayeross.data.backup.model.RestorePlan
 import com.lostf1sh.pixelplayeross.data.backup.model.RestoreResult
 import com.lostf1sh.pixelplayeross.data.backup.model.ValidationError
+import com.lostf1sh.pixelplayeross.data.database.PinnedCollectionEntity
+import com.lostf1sh.pixelplayeross.data.offline.NavidromeOfflineManager
 import com.lostf1sh.pixelplayeross.data.preferences.AppThemeMode
 import com.lostf1sh.pixelplayeross.data.preferences.CarouselStyle
 import com.lostf1sh.pixelplayeross.data.preferences.LibraryNavigationMode
@@ -98,7 +100,11 @@ data class SettingsUiState(
     val minSongDuration: Int = 10000,
     val minTracksPerAlbum: Int = 1,
     val replayGainEnabled: Boolean = false,
-    val replayGainUseAlbumGain: Boolean = false
+    val replayGainUseAlbumGain: Boolean = false,
+    val downloadQualityTier: String = "ORIGINAL",
+    val downloadWifiOnly: Boolean = true,
+    val streamCacheLimitBytes: Long = com.lostf1sh.pixelplayeross.data.offline.OfflineCacheModule.DEFAULT_STREAM_CACHE_BYTES,
+    val downloadEverythingEnabled: Boolean = false
 )
 
 data class FailedSongInfo(
@@ -168,6 +174,7 @@ class SettingsViewModel @Inject constructor(
     private val lyricsRepository: LyricsRepository,
     private val musicRepository: MusicRepository,
     private val backupManager: BackupManager,
+    private val navidromeOfflineManager: NavidromeOfflineManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -423,6 +430,31 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             userPreferencesRepository.replayGainUseAlbumGainFlow.collect { useAlbum ->
                 _uiState.update { it.copy(replayGainUseAlbumGain = useAlbum) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.downloadQualityTierFlow.collect { tier ->
+                _uiState.update { it.copy(downloadQualityTier = tier) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.downloadWifiOnlyFlow.collect { wifiOnly ->
+                _uiState.update { it.copy(downloadWifiOnly = wifiOnly) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.streamCacheLimitBytesFlow.collect { limitBytes ->
+                _uiState.update { it.copy(streamCacheLimitBytes = limitBytes) }
+            }
+        }
+
+        viewModelScope.launch {
+            navidromeOfflineManager.observeCollections().collect { collections ->
+                val hasLibraryPin = collections.any { it.type == PinnedCollectionEntity.PinType.LIBRARY }
+                _uiState.update { it.copy(downloadEverythingEnabled = hasLibraryPin) }
             }
         }
     }
@@ -977,6 +1009,48 @@ class SettingsViewModel @Inject constructor(
     fun removeBackupHistoryEntry(entry: BackupHistoryEntry) {
         viewModelScope.launch {
             backupManager.removeBackupHistoryEntry(entry.uri)
+        }
+    }
+
+    fun setDownloadWifiOnly(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDownloadWifiOnly(enabled)
+        }
+    }
+
+    fun setStreamCacheLimitBytes(bytes: Long) {
+        viewModelScope.launch {
+            userPreferencesRepository.setStreamCacheLimitBytes(bytes)
+        }
+    }
+
+    fun clearStreamCache() {
+        viewModelScope.launch {
+            navidromeOfflineManager.clearStreamCache()
+            _dataTransferEvents.send(context.getString(R.string.set_clear_stream_cache_done))
+        }
+    }
+
+    /** N pinned songs + total size estimate at [newTier], for the requality confirmation dialog. */
+    suspend fun estimateRequalifyBytes(newTier: String): Pair<Int, Long> =
+        navidromeOfflineManager.estimateRequalifyBytes(newTier)
+
+    fun changeDownloadQualityTier(newTier: String) {
+        viewModelScope.launch {
+            navidromeOfflineManager.changeQualityTier(newTier)
+        }
+    }
+
+    /** Size estimate for pinning the whole library at the current quality tier. */
+    suspend fun estimateLibraryBytes(): Long = navidromeOfflineManager.estimateLibraryBytes()
+
+    fun setDownloadEverything(enabled: Boolean) {
+        viewModelScope.launch {
+            if (enabled) {
+                navidromeOfflineManager.pinCollection(PinnedCollectionEntity.PinType.LIBRARY, "")
+            } else {
+                navidromeOfflineManager.unpinCollection(PinnedCollectionEntity.PinType.LIBRARY, "")
+            }
         }
     }
 

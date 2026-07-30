@@ -52,6 +52,24 @@
     <string name="setcat_external_lyrics_subtitle">Allow searches and manual fetches from lrclib.net when lyrics are missing locally.</string>
     <string name="setcat_external_artist_images_title">Artist artwork from Deezer</string>
     <string name="setcat_external_artist_images_subtitle">Allow missing artist images to be fetched from Deezer and cached locally.</string>
+
+    <string name="setcat_downloads">Downloads</string>
+    <string name="set_download_quality">Download quality</string>
+    <string name="set_download_quality_desc">Audio quality for songs pinned for offline listening.</string>
+    <string name="set_download_quality_original">Original</string>
+    <string name="set_download_quality_high">High (~320 kbps)</string>
+    <string name="set_download_quality_medium">Medium (~192 kbps)</string>
+    <string name="set_download_quality_low">Low (~128 kbps)</string>
+    <string name="set_download_wifi_only">Download on Wi-Fi only</string>
+    <string name="set_download_wifi_only_subtitle">Pause offline downloads while on mobile data.</string>
+    <string name="set_stream_cache_size">Stream cache size</string>
+    <string name="set_stream_cache_restart_note">How much disk space non-pinned Navidrome playback can cache. Applies on next app start.</string>
+    <string name="set_clear_stream_cache">Clear stream cache</string>
+    <string name="set_clear_stream_cache_subtitle">Remove cached playback data that isn\'t pinned for offline use.</string>
+    <string name="set_clear_stream_cache_done">Stream cache cleared</string>
+    <string name="set_download_everything">Download everything</string>
+    <string name="set_download_everything_subtitle">Keep your entire Navidrome library available offline.</string>
+
     <string name="setcat_lyrics_management">Lyrics Management</string>
     <string name="setcat_lyrics_source_priority_label">Lyrics Source Priority</string>
     <string name="setcat_lyrics_source_priority_desc">Choose which source to try first when fetching lyrics.</string>

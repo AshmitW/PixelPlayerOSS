@@ -51,5 +51,6 @@ sealed class Screen(val route: String) {
     object DeviceCapabilities : Screen("device_capabilities")
     object NavidromeDashboard : Screen("navidrome_dashboard")
     object JellyfinDashboard : Screen("jellyfin_dashboard")
+    object DownloadsStorage : Screen("downloads_storage")
 
 }

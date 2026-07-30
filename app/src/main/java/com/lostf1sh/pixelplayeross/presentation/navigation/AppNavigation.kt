@@ -560,6 +560,20 @@ fun AppNavigation(
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel) {
                     com.lostf1sh.pixelplayeross.presentation.navidrome.dashboard.NavidromeDashboardScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToDownloads = { navController.navigateSafely(Screen.DownloadsStorage.route) }
+                    )
+                }
+            }
+            composable(
+                Screen.DownloadsStorage.route,
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { popEnterTransition() },
+                popExitTransition = { popExitTransition() },
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel) {
+                    com.lostf1sh.pixelplayeross.presentation.navidrome.dashboard.DownloadsStorageScreen(
                         onBack = { navController.popBackStack() }
                     )
                 }
