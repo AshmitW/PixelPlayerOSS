@@ -250,6 +250,15 @@ class NavidromeRepository @Inject constructor(
      */
     suspend fun logout() {
         Timber.d("$TAG: Logging out")
+
+        try {
+            offlineManager.get().onLogout()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "$TAG: offline manager cleanup on logout failed")
+        }
+
         api.clearCredentials()
         prefs.edit { clear() }
 
@@ -274,14 +283,6 @@ class NavidromeRepository @Inject constructor(
         dao.clearPendingFavorites()
         dao.clearPendingPlaylistDeletes()
         userPreferencesRepository.clearNavidromeSelectedMusicFolderIds()
-
-        try {
-            offlineManager.get().onLogout()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Timber.w(e, "$TAG: offline manager cleanup on logout failed")
-        }
 
         _isLoggedInFlow.value = false
     }
@@ -408,7 +409,7 @@ class NavidromeRepository @Inject constructor(
     /**
      * Sync songs in a specific playlist.
      */
-    suspend fun syncPlaylistSongs(playlistId: String): Result<Int> {
+    suspend fun syncPlaylistSongs(playlistId: String, reconcilePins: Boolean = true): Result<Int> {
         if (playlistId == LIBRARY_PLAYLIST_ID) {
             return syncLibrarySongs()
         }
@@ -453,12 +454,14 @@ class NavidromeRepository @Inject constructor(
                     Timber.w("$TAG: songJsons was not empty (${songJsons.size}) but entities was empty. Parsing issue?")
                 }
 
-                try {
-                    offlineManager.get().reconcile()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.w(e, "$TAG: offline reconcile failed after playlist songs sync")
+                if (reconcilePins) {
+                    try {
+                        offlineManager.get().reconcile()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.w(e, "$TAG: offline reconcile failed after playlist songs sync")
+                    }
                 }
 
                 Timber.d("$TAG: Synced ${entities.size} songs for playlist $playlistId")
@@ -664,7 +667,7 @@ class NavidromeRepository @Inject constructor(
                     context.getString(R.string.dash_status_syncing_playlist_format, playlist.name)
                 )
                 
-                val songSyncResult = syncPlaylistSongs(playlist.id)
+                val songSyncResult = syncPlaylistSongs(playlist.id, reconcilePins = false)
                 songSyncResult.fold(
                     onSuccess = { count -> syncedSongCount += count },
                     onFailure = {
