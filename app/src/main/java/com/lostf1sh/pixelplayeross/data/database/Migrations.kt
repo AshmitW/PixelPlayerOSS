@@ -99,3 +99,35 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         )
     }
 }
+
+/**
+ * v4 -> v5: offline pin registry — both tables are brand-new, so (like v2->v3) no SQL
+ * defaults are needed; the DDL must match the Room-generated schema exactly.
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+                CREATE TABLE IF NOT EXISTS `pinned_collections` (
+                    `type` TEXT NOT NULL,
+                    `targetId` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`type`, `targetId`)
+                )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+                CREATE TABLE IF NOT EXISTS `pinned_songs` (
+                    `navidromeId` TEXT NOT NULL,
+                    `qualityTier` TEXT NOT NULL,
+                    `refCount` INTEGER NOT NULL,
+                    `completedAt` INTEGER,
+                    `sizeBytes` INTEGER,
+                    PRIMARY KEY(`navidromeId`)
+                )
+            """.trimIndent()
+        )
+    }
+}
