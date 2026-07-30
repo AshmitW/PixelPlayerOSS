@@ -123,52 +123,67 @@ class NavidromeOfflineManager @Inject constructor(
      * build doesn't understand yet — so the removal phase is skipped whenever one is
      * present; additions still go through normally.
      */
-    suspend fun reconcile() = reconcileMutex.withLock {
-        val collections = pinnedDownloadsDao.getCollectionsOnce()
-        val hasUnknownType = collections.any { it.type !in KNOWN_PIN_TYPES }
-        if (hasUnknownType) {
-            Timber.tag(TAG).w("Unknown pinned_collections type present; skipping removal phase this reconcile")
-        }
-
-        val desired = materializePins(gatherPinInputs(collections))
-        val currentIds = pinnedDownloadsDao.getPinnedSongsOnce().map { it.navidromeId }.toSet()
-        val diff = diffPins(currentIds, desired)
-        val tier = userPreferencesRepository.downloadQualityTierFlow.first()
-
-        if (diff.toAdd.isNotEmpty()) {
-            val newRows = diff.toAdd.map { id ->
-                PinnedSongEntity(
-                    navidromeId = id,
-                    qualityTier = tier,
-                    refCount = desired[id] ?: 1,
-                    completedAt = null,
-                    sizeBytes = null
-                )
+    suspend fun reconcile() = withContext(Dispatchers.IO) {
+        reconcileMutex.withLock {
+            val collections = pinnedDownloadsDao.getCollectionsOnce()
+            val hasUnknownType = collections.any { it.type !in KNOWN_PIN_TYPES }
+            if (hasUnknownType) {
+                Timber.tag(TAG).w("Unknown pinned_collections type present; skipping removal phase this reconcile")
             }
-            pinnedDownloadsDao.upsertPinnedSongs(newRows)
-            newRows.forEach { streamCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
-        }
 
-        (desired.keys intersect currentIds).forEach { id ->
-            pinnedDownloadsDao.updateRefCount(id, desired[id] ?: 1)
-        }
+            val desired = materializePins(gatherPinInputs(collections))
+            val currentIds = pinnedDownloadsDao.getPinnedSongsOnce().map { it.navidromeId }.toSet()
+            val diff = diffPins(currentIds, desired)
+            val tier = userPreferencesRepository.downloadQualityTierFlow.first()
 
-        if (!hasUnknownType && diff.toRemove.isNotEmpty()) {
-            deletePinnedSongsChunked(diff.toRemove)
-            diff.toRemove.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it)) }
-        }
+            if (diff.toAdd.isNotEmpty()) {
+                val newRows = diff.toAdd.map { id ->
+                    PinnedSongEntity(
+                        navidromeId = id,
+                        qualityTier = tier,
+                        refCount = desired[id] ?: 1,
+                        completedAt = null,
+                        sizeBytes = null
+                    )
+                }
+                pinnedDownloadsDao.upsertPinnedSongs(newRows)
+                newRows.forEach { streamCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
+            }
 
-        // Self-heal: a row left with a stale qualityTier (process death between
-        // changeQualityTier's DB reset and its pref write) would otherwise never be
-        // corrected, since nothing else re-derives qualityTier from the pref.
-        val mismatchedTierRows = pinnedDownloadsDao.getPinnedSongsOnce().filter { it.qualityTier != tier }
-        if (mismatchedTierRows.isNotEmpty()) {
-            pinnedDownloadsDao.resetMismatchedQualityTier(tier)
-            mismatchedTierRows.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
-        }
+            (desired.keys intersect currentIds).forEach { id ->
+                pinnedDownloadsDao.updateRefCount(id, desired[id] ?: 1)
+            }
 
-        if (pinnedDownloadsDao.getIncompleteOnce().isNotEmpty()) {
-            scheduleDownloads()
+            if (!hasUnknownType && diff.toRemove.isNotEmpty()) {
+                // Purge before deleting registry rows: death mid-purge must leave "row still present, no bytes" (healable), not "row gone, stale bytes" (resume-splice corruption).
+                diff.toRemove.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it)) }
+                deletePinnedSongsChunked(diff.toRemove)
+            }
+
+            // Self-heal: a row left with a stale qualityTier (process death between
+            // changeQualityTier's DB reset and its pref write) would otherwise never be
+            // corrected, since nothing else re-derives qualityTier from the pref.
+            val mismatchedTierRows = pinnedDownloadsDao.getPinnedSongsOnce().filter { it.qualityTier != tier }
+            if (mismatchedTierRows.isNotEmpty()) {
+                pinnedDownloadsDao.resetMismatchedQualityTier(tier)
+                mismatchedTierRows.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
+            }
+
+            // Self-heal: a COMPLETED row whose cached bytes are gone (process death mid-purge
+            // in changeQualityTier, an older build's toRemove ordering, or cache eviction)
+            // would otherwise be treated as a finished download with zero bytes and never
+            // redownloaded.
+            val staleCompletedRows = pinnedDownloadsDao.getPinnedSongsOnce().filter { row ->
+                row.completedAt != null &&
+                    downloadCache.getCachedBytes(NavidromeCacheKeys.cacheKeyFor(row.navidromeId), 0, -1) <= 0
+            }
+            if (staleCompletedRows.isNotEmpty()) {
+                resetCompletedRowsChunked(staleCompletedRows.map { it.navidromeId })
+            }
+
+            if (pinnedDownloadsDao.getIncompleteOnce().isNotEmpty()) {
+                scheduleDownloads()
+            }
         }
     }
 
@@ -332,7 +347,7 @@ class NavidromeOfflineManager @Inject constructor(
 
     /**
      * Cancels the download work first so WorkManager stops scheduling further drain passes,
-     * then takes [drainMutex] around the tier reset, pref write, and cache purge.
+     * then takes [drainMutex] around the cache purge, tier reset, and pref write.
      *
      * Cancellation does NOT abort an in-flight [CacheWriter]: [CacheWriter.cache] is
      * blocking I/O with no cancellation checkpoint, so if a download is mid-write when this
@@ -347,9 +362,10 @@ class NavidromeOfflineManager @Inject constructor(
         workManager.cancelUniqueWork(WORK_NAME)
         drainMutex.withLock {
             val pinned = pinnedDownloadsDao.getPinnedSongsOnce()
+            // Purge before resetting rows: death mid-purge must leave "completed row, no bytes" (healable), not "incomplete row, stale bytes" (resume-splice corruption).
+            pinned.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
             pinnedDownloadsDao.resetAllForQuality(newTier)
             userPreferencesRepository.setDownloadQualityTier(newTier)
-            pinned.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
         }
         scheduleDownloads()
     }
@@ -417,5 +433,10 @@ class NavidromeOfflineManager @Inject constructor(
     /** Chunks an IN (:ids) delete below SQLite's bound-variable limit; see [ID_CHUNK_SIZE]. */
     private suspend fun deletePinnedSongsChunked(ids: List<String>) {
         ids.chunked(ID_CHUNK_SIZE).forEach { pinnedDownloadsDao.deletePinnedSongs(it) }
+    }
+
+    /** Chunks an IN (:ids) reset below SQLite's bound-variable limit; see [ID_CHUNK_SIZE]. */
+    private suspend fun resetCompletedRowsChunked(ids: List<String>) {
+        ids.chunked(ID_CHUNK_SIZE).forEach { pinnedDownloadsDao.resetCompletedForIds(it) }
     }
 }

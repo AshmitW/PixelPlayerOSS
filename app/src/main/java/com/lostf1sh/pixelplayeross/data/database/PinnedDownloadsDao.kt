@@ -96,6 +96,15 @@ interface PinnedDownloadsDao {
     @Query("UPDATE pinned_songs SET qualityTier = :tier, completedAt = NULL, sizeBytes = NULL WHERE qualityTier != :tier")
     suspend fun resetMismatchedQualityTier(tier: String)
 
+    /**
+     * Self-heal query for [com.lostf1sh.pixelplayeross.data.offline.NavidromeOfflineManager.reconcile]:
+     * clears completion state for rows whose cache bytes are gone despite the row still
+     * being marked completed, recovering a registry left inconsistent by process death
+     * mid-purge.
+     */
+    @Query("UPDATE pinned_songs SET completedAt = NULL, sizeBytes = NULL WHERE navidromeId IN (:ids)")
+    suspend fun resetCompletedForIds(ids: List<String>)
+
     @Query("SELECT COUNT(*) FROM pinned_songs WHERE completedAt IS NULL")
     suspend fun countIncompleteOnce(): Int
 
