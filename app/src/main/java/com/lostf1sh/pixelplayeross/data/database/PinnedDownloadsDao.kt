@@ -64,8 +64,21 @@ interface PinnedDownloadsDao {
     @Query("SELECT * FROM pinned_songs WHERE completedAt IS NULL")
     suspend fun getIncompleteOnce(): List<PinnedSongEntity>
 
-    @Query("UPDATE pinned_songs SET completedAt = :completedAt, sizeBytes = :sizeBytes WHERE navidromeId = :navidromeId")
-    suspend fun markCompleted(navidromeId: String, completedAt: Long, sizeBytes: Long)
+    @Query("SELECT * FROM pinned_songs WHERE navidromeId = :navidromeId")
+    suspend fun getPinnedSongOnce(navidromeId: String): PinnedSongEntity?
+
+    /**
+     * Tier-conditional on purpose: if a quality change reset this row (or unpinned it away)
+     * while a download for the *old* tier was already in flight, the caller's snapshotted
+     * [qualityTier] no longer matches the row and this UPDATE hits 0 rows — the song
+     * correctly stays incomplete (or gone) instead of being marked completed for bytes that
+     * belong to a stale tier.
+     */
+    @Query(
+        "UPDATE pinned_songs SET completedAt = :completedAt, sizeBytes = :sizeBytes " +
+            "WHERE navidromeId = :navidromeId AND qualityTier = :qualityTier"
+    )
+    suspend fun markCompleted(navidromeId: String, qualityTier: String, completedAt: Long, sizeBytes: Long?)
 
     @Query("UPDATE pinned_songs SET refCount = :refCount WHERE navidromeId = :navidromeId")
     suspend fun updateRefCount(navidromeId: String, refCount: Int)

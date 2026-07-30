@@ -250,6 +250,9 @@ class NavidromeOfflineManager @Inject constructor(
     }
 
     private suspend fun downloadOne(cacheDataSource: CacheDataSource, navidromeId: String, qualityTier: String) {
+        // qualityTier is the tier snapshotted from the row *before* this fetch started; it
+        // travels through to markCompleted below so a concurrent changeQualityTier reset
+        // can't have this write silently mark the row completed for the wrong tier's bytes.
         val url = navidromeRepository.getStreamUrl(navidromeId, maxBitRateForTier(qualityTier))
         val cacheKey = NavidromeCacheKeys.cacheKeyFor(navidromeId)
         val dataSpec = DataSpec.Builder()
@@ -260,8 +263,18 @@ class NavidromeOfflineManager @Inject constructor(
         withContext(Dispatchers.IO) {
             CacheWriter(cacheDataSource, dataSpec, null, null).cache()
         }
+
+        val currentRow = pinnedDownloadsDao.getPinnedSongOnce(navidromeId)
+        if (currentRow == null || currentRow.qualityTier != qualityTier) {
+            // Unpinned or quality-changed mid-download: the bytes we just wrote belong to a
+            // registry state that no longer exists, so they'd otherwise sit as orphans.
+            Timber.tag(TAG).d("Dropping stale download for $navidromeId (tier changed or unpinned mid-download)")
+            downloadCache.removeResource(cacheKey)
+            return
+        }
+
         val bytesCached = downloadCache.getCachedBytes(cacheKey, 0, -1)
-        pinnedDownloadsDao.markCompleted(navidromeId, System.currentTimeMillis(), bytesCached)
+        pinnedDownloadsDao.markCompleted(navidromeId, qualityTier, System.currentTimeMillis(), bytesCached)
     }
 
     private suspend fun resolveUnifiedSong(navidromeId: String): Song? {
@@ -289,11 +302,22 @@ class NavidromeOfflineManager @Inject constructor(
         }
     }
 
+    /**
+     * Cancels the download work FIRST so any in-flight [CacheWriter] loses its coroutine
+     * before the DB reset + cache purge run, then only takes [drainMutex] (acquisition is
+     * fast once the drain is actually cancelled) around the reset and purge. This ordering
+     * guarantees no writer for the old tier can land bytes after the purge runs — the only
+     * way a stale write could still slip through is the tier-conditional `markCompleted`
+     * (see [PinnedDownloadsDao.markCompleted]), which self-heals that residual race.
+     */
     suspend fun changeQualityTier(newTier: String) {
         userPreferencesRepository.setDownloadQualityTier(newTier)
-        val pinned = pinnedDownloadsDao.getPinnedSongsOnce()
-        pinnedDownloadsDao.resetAllForQuality(newTier)
-        pinned.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
+        workManager.cancelUniqueWork(WORK_NAME)
+        drainMutex.withLock {
+            val pinned = pinnedDownloadsDao.getPinnedSongsOnce()
+            pinnedDownloadsDao.resetAllForQuality(newTier)
+            pinned.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
+        }
         scheduleDownloads()
     }
 
