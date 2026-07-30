@@ -40,7 +40,15 @@ class NavidromeDownloadWorker @AssistedInject constructor(
                 lastTotal = total
                 lastTitle = currentTitle
                 setProgressAsync(workDataOf(KEY_DONE to done, KEY_TOTAL to total))
-                setForegroundAsync(buildForegroundInfo(done, total, currentTitle))
+                try {
+                    setForeground(buildForegroundInfo(done, total, currentTitle))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Background-start foreground-service restrictions can reject this on
+                    // some OEMs/Android versions; the download itself must keep going.
+                    Timber.d(e, "NavidromeDownloadWorker: setForeground failed, continuing without it")
+                }
             }
             if (drained) Result.success() else Result.retry()
         } catch (e: CancellationException) {

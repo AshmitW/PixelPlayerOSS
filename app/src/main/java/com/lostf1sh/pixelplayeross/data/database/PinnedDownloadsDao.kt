@@ -72,19 +72,32 @@ interface PinnedDownloadsDao {
      * while a download for the *old* tier was already in flight, the caller's snapshotted
      * [qualityTier] no longer matches the row and this UPDATE hits 0 rows — the song
      * correctly stays incomplete (or gone) instead of being marked completed for bytes that
-     * belong to a stale tier.
+     * belong to a stale tier. Returns the affected row count so the caller can tell whether
+     * the write actually landed (0 = stale, skip any completion side effects).
      */
     @Query(
         "UPDATE pinned_songs SET completedAt = :completedAt, sizeBytes = :sizeBytes " +
             "WHERE navidromeId = :navidromeId AND qualityTier = :qualityTier"
     )
-    suspend fun markCompleted(navidromeId: String, qualityTier: String, completedAt: Long, sizeBytes: Long?)
+    suspend fun markCompleted(navidromeId: String, qualityTier: String, completedAt: Long, sizeBytes: Long?): Int
 
     @Query("UPDATE pinned_songs SET refCount = :refCount WHERE navidromeId = :navidromeId")
     suspend fun updateRefCount(navidromeId: String, refCount: Int)
 
     @Query("UPDATE pinned_songs SET qualityTier = :newTier, completedAt = NULL, sizeBytes = NULL")
     suspend fun resetAllForQuality(newTier: String)
+
+    /**
+     * Self-heal query for [com.lostf1sh.pixelplayeross.data.offline.NavidromeOfflineManager.reconcile]:
+     * resets any row whose tier diverged from the currently selected tier back to it. This
+     * recovers a registry left inconsistent by process death between
+     * `resetAllForQuality` and the pref write in `changeQualityTier`.
+     */
+    @Query("UPDATE pinned_songs SET qualityTier = :tier, completedAt = NULL, sizeBytes = NULL WHERE qualityTier != :tier")
+    suspend fun resetMismatchedQualityTier(tier: String)
+
+    @Query("SELECT COUNT(*) FROM pinned_songs WHERE completedAt IS NULL")
+    suspend fun countIncompleteOnce(): Int
 
     @Query("SELECT SUM(sizeBytes) FROM pinned_songs")
     fun totalPinnedBytes(): Flow<Long?>

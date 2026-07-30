@@ -38,6 +38,7 @@ import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.flac.FlacExtractor
 import com.lostf1sh.pixelplayeross.data.model.TransitionSettings
 import com.lostf1sh.pixelplayeross.data.offline.DownloadCache
+import com.lostf1sh.pixelplayeross.data.offline.DownloadedSongsGate
 import com.lostf1sh.pixelplayeross.data.offline.NavidromeCacheKeys
 import com.lostf1sh.pixelplayeross.data.offline.SchemeRoutingDataSource
 import com.lostf1sh.pixelplayeross.data.offline.StreamCache
@@ -175,7 +176,8 @@ class DualPlayerEngine @Inject constructor(
     private val navidromeStreamProxy: NavidromeStreamProxy,
     private val jellyfinStreamProxy: com.lostf1sh.pixelplayeross.data.jellyfin.JellyfinStreamProxy,
     @DownloadCache private val downloadCache: SimpleCache,
-    @StreamCache private val streamCache: SimpleCache
+    @StreamCache private val streamCache: SimpleCache,
+    private val downloadedSongsGate: DownloadedSongsGate
 ) {
     private companion object {
         private const val AUDIO_OFFLOAD_STALL_FALLBACK_MS = 4_000L
@@ -902,7 +904,12 @@ class DualPlayerEngine @Inject constructor(
             .setCacheWriteDataSinkFactory(null)
             .setUpstreamDataSourceFactory(streamWriteFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        val routedFactory = SchemeRoutingDataSource.Factory(downloadReadFactory, resolvingFactory)
+        val routedFactory = SchemeRoutingDataSource.Factory(
+            downloadReadFactory,
+            streamWriteFactory,
+            resolvingFactory,
+            downloadedSongsGate::isDownloaded
+        )
 
         val extractorsFactory = DefaultExtractorsFactory()
             .setMp3ExtractorFlags(Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)

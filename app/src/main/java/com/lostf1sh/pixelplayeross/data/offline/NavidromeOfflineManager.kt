@@ -16,9 +16,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import coil.imageLoader
 import coil.request.ImageRequest
-import com.lostf1sh.pixelplayeross.data.database.FavoritesDao
 import com.lostf1sh.pixelplayeross.data.database.MusicDao
 import com.lostf1sh.pixelplayeross.data.database.NavidromeDao
+import com.lostf1sh.pixelplayeross.data.database.NavidromeSongEntity
 import com.lostf1sh.pixelplayeross.data.database.PinnedCollectionEntity
 import com.lostf1sh.pixelplayeross.data.database.PinnedDownloadsDao
 import com.lostf1sh.pixelplayeross.data.database.PinnedSongEntity
@@ -52,10 +52,6 @@ import timber.log.Timber
 class NavidromeOfflineManager @Inject constructor(
     private val pinnedDownloadsDao: PinnedDownloadsDao,
     private val navidromeDao: NavidromeDao,
-    // Favorites membership for reconcile is resolved via MusicDao's content-uri query
-    // below (mirrors NavidromeRepository's own favorites-import path); kept as a
-    // dependency for future direct favorite-state lookups.
-    private val favoritesDao: FavoritesDao,
     private val musicDao: MusicDao,
     private val navidromeRepository: NavidromeRepository,
     @DownloadCache private val downloadCache: SimpleCache,
@@ -69,6 +65,11 @@ class NavidromeOfflineManager @Inject constructor(
         private const val TAG = "NavidromeOfflineMgr"
         const val WORK_NAME = "navidrome_downloads"
         private const val NAVIDROME_URI_PREFIX = "navidrome://"
+
+        // Room binds SQLite parameters as a flat list for an IN (:ids) clause; SQLite's
+        // default limit is ~999 bound variables per statement, so any id list wider than
+        // this is split into chunks before being handed to the DAO.
+        private const val ID_CHUNK_SIZE = 900
 
         private const val TIER_HIGH = "HIGH"
         private const val TIER_MEDIUM = "MEDIUM"
@@ -93,12 +94,19 @@ class NavidromeOfflineManager @Inject constructor(
 
     private val drainMutex = Mutex()
 
-    suspend fun pinCollection(type: String, targetId: String) {
+    // Serializes reconcile() against itself only — pin/unpin calls and post-sync reconcile
+    // hooks can arrive concurrently from unrelated triggers (UI, sync workers), and without
+    // this an overlapping pass could read a pre-diff pinned-songs snapshot while another
+    // pass is mid-write, corrupting the add/remove diff. Deliberately not drainMutex: a
+    // reconcile must be able to run (and enqueue new work) while a drain is in progress.
+    private val reconcileMutex = Mutex()
+
+    suspend fun pinCollection(type: String, targetId: String) = withContext(Dispatchers.IO) {
         pinnedDownloadsDao.upsertCollection(PinnedCollectionEntity(type = type, targetId = targetId))
         reconcile()
     }
 
-    suspend fun unpinCollection(type: String, targetId: String) {
+    suspend fun unpinCollection(type: String, targetId: String) = withContext(Dispatchers.IO) {
         pinnedDownloadsDao.deleteCollection(type, targetId)
         reconcile()
     }
@@ -115,7 +123,7 @@ class NavidromeOfflineManager @Inject constructor(
      * build doesn't understand yet — so the removal phase is skipped whenever one is
      * present; additions still go through normally.
      */
-    suspend fun reconcile() {
+    suspend fun reconcile() = reconcileMutex.withLock {
         val collections = pinnedDownloadsDao.getCollectionsOnce()
         val hasUnknownType = collections.any { it.type !in KNOWN_PIN_TYPES }
         if (hasUnknownType) {
@@ -146,8 +154,17 @@ class NavidromeOfflineManager @Inject constructor(
         }
 
         if (!hasUnknownType && diff.toRemove.isNotEmpty()) {
-            pinnedDownloadsDao.deletePinnedSongs(diff.toRemove)
+            deletePinnedSongsChunked(diff.toRemove)
             diff.toRemove.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it)) }
+        }
+
+        // Self-heal: a row left with a stale qualityTier (process death between
+        // changeQualityTier's DB reset and its pref write) would otherwise never be
+        // corrected, since nothing else re-derives qualityTier from the pref.
+        val mismatchedTierRows = pinnedDownloadsDao.getPinnedSongsOnce().filter { it.qualityTier != tier }
+        if (mismatchedTierRows.isNotEmpty()) {
+            pinnedDownloadsDao.resetMismatchedQualityTier(tier)
+            mismatchedTierRows.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
         }
 
         if (pinnedDownloadsDao.getIncompleteOnce().isNotEmpty()) {
@@ -201,6 +218,9 @@ class NavidromeOfflineManager @Inject constructor(
         // useful in-progress work for no benefit.
         workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, request)
     }
+
+    /** Whether any pinned song still needs its bytes downloaded, for the app-start scheduling gate. */
+    suspend fun hasIncompleteDownloads(): Boolean = pinnedDownloadsDao.countIncompleteOnce() > 0
 
     /**
      * Drains the incomplete-downloads queue: resolves a fresh stream URL per song,
@@ -274,7 +294,15 @@ class NavidromeOfflineManager @Inject constructor(
         }
 
         val bytesCached = downloadCache.getCachedBytes(cacheKey, 0, -1)
-        pinnedDownloadsDao.markCompleted(navidromeId, qualityTier, System.currentTimeMillis(), bytesCached)
+        val updatedRows = pinnedDownloadsDao.markCompleted(navidromeId, qualityTier, System.currentTimeMillis(), bytesCached)
+        if (updatedRows > 0) {
+            // The stream cache may hold stale original-tier bytes under this same cache key
+            // from earlier playback; purge them so a completed, possibly-transcoded download
+            // can never be shadowed by them (SchemeRoutingDataSource routes completed ids to
+            // the download cache exclusively, but this keeps the stream cache from holding
+            // dead weight for a song that no longer needs auto-caching).
+            streamCache.removeResource(cacheKey)
+        }
     }
 
     private suspend fun resolveUnifiedSong(navidromeId: String): Song? {
@@ -303,25 +331,30 @@ class NavidromeOfflineManager @Inject constructor(
     }
 
     /**
-     * Cancels the download work FIRST so any in-flight [CacheWriter] loses its coroutine
-     * before the DB reset + cache purge run, then only takes [drainMutex] (acquisition is
-     * fast once the drain is actually cancelled) around the reset and purge. This ordering
-     * guarantees no writer for the old tier can land bytes after the purge runs — the only
-     * way a stale write could still slip through is the tier-conditional `markCompleted`
-     * (see [PinnedDownloadsDao.markCompleted]), which self-heals that residual race.
+     * Cancels the download work first so WorkManager stops scheduling further drain passes,
+     * then takes [drainMutex] around the tier reset, pref write, and cache purge.
+     *
+     * Cancellation does NOT abort an in-flight [CacheWriter]: [CacheWriter.cache] is
+     * blocking I/O with no cancellation checkpoint, so if a download is mid-write when this
+     * runs, acquiring [drainMutex] here blocks until that write returns — i.e. until the
+     * current song finishes downloading (or fails) — before the reset can proceed. That
+     * wait is the entire point of taking the mutex: it guarantees no writer for the old
+     * tier can land bytes after the purge below runs. The tier-conditional `markCompleted`
+     * (see [PinnedDownloadsDao.markCompleted]) self-heals the one remaining edge case: a
+     * write already past its last tier check when cancellation was requested.
      */
-    suspend fun changeQualityTier(newTier: String) {
-        userPreferencesRepository.setDownloadQualityTier(newTier)
+    suspend fun changeQualityTier(newTier: String) = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(WORK_NAME)
         drainMutex.withLock {
             val pinned = pinnedDownloadsDao.getPinnedSongsOnce()
             pinnedDownloadsDao.resetAllForQuality(newTier)
+            userPreferencesRepository.setDownloadQualityTier(newTier)
             pinned.forEach { downloadCache.removeResource(NavidromeCacheKeys.cacheKeyFor(it.navidromeId)) }
         }
         scheduleDownloads()
     }
 
-    suspend fun removeAllDownloads() {
+    suspend fun removeAllDownloads() = withContext(Dispatchers.IO) {
         pinnedDownloadsDao.clearAll()
         removeAllNavResources(downloadCache)
     }
@@ -335,7 +368,7 @@ class NavidromeOfflineManager @Inject constructor(
         val pinned = pinnedDownloadsDao.getPinnedSongsOnce()
         if (pinned.isEmpty()) return 0 to 0L
         val tierCap = maxBitRateForTier(newTier).takeIf { it > 0 }
-        val songs = navidromeDao.getSongsByNavidromeIds(pinned.map { it.navidromeId })
+        val songs = getSongsByNavidromeIdsChunked(pinned.map { it.navidromeId })
         val bytes = songs.sumOf { estimateBytes(it.duration, it.bitRate, tierCap) }
         return pinned.size to bytes
     }
@@ -346,11 +379,11 @@ class NavidromeOfflineManager @Inject constructor(
         if (libraryIds.isEmpty()) return 0L
         val tier = userPreferencesRepository.downloadQualityTierFlow.first()
         val tierCap = maxBitRateForTier(tier).takeIf { it > 0 }
-        val songs = navidromeDao.getSongsByNavidromeIds(libraryIds)
+        val songs = getSongsByNavidromeIdsChunked(libraryIds)
         return songs.sumOf { estimateBytes(it.duration, it.bitRate, tierCap) }
     }
 
-    suspend fun clearStreamCache() {
+    suspend fun clearStreamCache() = withContext(Dispatchers.IO) {
         removeAllNavResources(streamCache)
     }
 
@@ -358,16 +391,31 @@ class NavidromeOfflineManager @Inject constructor(
 
     fun streamCacheBytes(): Long = streamCache.cacheSpace
 
-    suspend fun onLogout() {
+    suspend fun onLogout() = withContext(Dispatchers.IO) {
         workManager.cancelUniqueWork(WORK_NAME)
-        pinnedDownloadsDao.clearAll()
-        removeAllNavResources(downloadCache)
-        removeAllNavResources(streamCache)
+        // Mirrors changeQualityTier: takes drainMutex around the registry clear and cache
+        // purges so a drain pass that is mid-write when logout fires cannot land a write
+        // after the purge runs and resurrect a "downloaded" resource for a session that no
+        // longer has credentials.
+        drainMutex.withLock {
+            pinnedDownloadsDao.clearAll()
+            removeAllNavResources(downloadCache)
+            removeAllNavResources(streamCache)
+        }
     }
 
     private fun removeAllNavResources(cache: SimpleCache) {
         cache.keys.filter { it.startsWith(NavidromeCacheKeys.KEY_PREFIX) }.forEach { key ->
             cache.removeResource(key)
         }
+    }
+
+    /** Chunks an IN (:ids) lookup below SQLite's bound-variable limit; see [ID_CHUNK_SIZE]. */
+    private suspend fun getSongsByNavidromeIdsChunked(ids: List<String>): List<NavidromeSongEntity> =
+        ids.chunked(ID_CHUNK_SIZE).flatMap { navidromeDao.getSongsByNavidromeIds(it) }
+
+    /** Chunks an IN (:ids) delete below SQLite's bound-variable limit; see [ID_CHUNK_SIZE]. */
+    private suspend fun deletePinnedSongsChunked(ids: List<String>) {
+        ids.chunked(ID_CHUNK_SIZE).forEach { pinnedDownloadsDao.deletePinnedSongs(it) }
     }
 }

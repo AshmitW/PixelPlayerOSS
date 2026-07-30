@@ -130,7 +130,10 @@ class PixelPlayerApplication : Application(), ImageLoaderFactory, Configuration.
         startupScope.launch {
             try {
                 if (navidromeRepository.get().isLoggedIn) {
-                    navidromeOfflineManager.get().scheduleDownloads()
+                    val manager = navidromeOfflineManager.get()
+                    if (manager.hasIncompleteDownloads()) {
+                        manager.scheduleDownloads()
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e

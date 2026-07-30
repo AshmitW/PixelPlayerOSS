@@ -6,19 +6,26 @@ import org.junit.jupiter.api.Test
 class SchemeRoutingDataSourceTest {
 
     @Test
-    fun `navidrome scheme routes to cache`() {
-        assertThat(routesToCache("navidrome")).isTrue()
+    fun `completed navidrome download routes to download cache`() {
+        assertThat(routeFor("navidrome", isDownloaded = true)).isEqualTo(SchemeRoute.DOWNLOAD)
     }
 
     @Test
-    fun `jellyfin and http schemes bypass cache`() {
-        assertThat(routesToCache("jellyfin")).isFalse()
-        assertThat(routesToCache("http")).isFalse()
-        assertThat(routesToCache("content")).isFalse()
+    fun `non-downloaded navidrome song routes to stream cache`() {
+        assertThat(routeFor("navidrome", isDownloaded = false)).isEqualTo(SchemeRoute.STREAM)
     }
 
     @Test
-    fun `null scheme bypasses cache`() {
-        assertThat(routesToCache(null)).isFalse()
+    fun `jellyfin and http schemes bypass both caches regardless of downloaded flag`() {
+        assertThat(routeFor("jellyfin", isDownloaded = true)).isEqualTo(SchemeRoute.PLAIN)
+        assertThat(routeFor("jellyfin", isDownloaded = false)).isEqualTo(SchemeRoute.PLAIN)
+        assertThat(routeFor("http", isDownloaded = false)).isEqualTo(SchemeRoute.PLAIN)
+        assertThat(routeFor("content", isDownloaded = false)).isEqualTo(SchemeRoute.PLAIN)
+    }
+
+    @Test
+    fun `null scheme bypasses both caches regardless of downloaded flag`() {
+        assertThat(routeFor(null, isDownloaded = true)).isEqualTo(SchemeRoute.PLAIN)
+        assertThat(routeFor(null, isDownloaded = false)).isEqualTo(SchemeRoute.PLAIN)
     }
 }

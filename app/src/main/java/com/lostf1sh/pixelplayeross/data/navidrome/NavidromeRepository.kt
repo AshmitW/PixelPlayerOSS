@@ -411,7 +411,20 @@ class NavidromeRepository @Inject constructor(
      */
     suspend fun syncPlaylistSongs(playlistId: String, reconcilePins: Boolean = true): Result<Int> {
         if (playlistId == LIBRARY_PLAYLIST_ID) {
-            return syncLibrarySongs()
+            val result = syncLibrarySongs()
+            if (reconcilePins) {
+                // Library refresh must release pins for songs the server no longer has;
+                // without this hook a caller of the LIBRARY_PLAYLIST_ID branch (e.g. the
+                // periodic sync worker) never re-derives the pin registry after a pull.
+                try {
+                    offlineManager.get().reconcile()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "$TAG: offline reconcile failed after library songs sync")
+                }
+            }
+            return result
         }
 
         return withContext(Dispatchers.IO) {
