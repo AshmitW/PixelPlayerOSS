@@ -1,11 +1,7 @@
 name: Mirror to GitLab
 
+# Fork note: automatic triggers disabled; manual runs only. Kept for easy upstream syncing.
 on:
-  push:
-    branches:
-      - "**"
-    tags:
-      - "**"
   workflow_dispatch:
 
 permissions:

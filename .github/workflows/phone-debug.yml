@@ -1,11 +1,7 @@
 name: Build Phone APK (Debug)
 
+# Fork note: automatic triggers disabled; manual runs only. Kept for easy upstream syncing.
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:

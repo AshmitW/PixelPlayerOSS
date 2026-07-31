@@ -1,9 +1,7 @@
 name: Build Nightly APK
 
+# Fork note: automatic triggers disabled; manual runs only. Kept for easy upstream syncing.
 on:
-  schedule:
-    # Runs at 02:17 America/Buenos_Aires.
-    - cron: '17 5 * * *'
   workflow_dispatch:
 
 permissions:
