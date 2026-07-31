@@ -26,9 +26,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       # A permanent keystore lives in repo secrets so every build carries the SAME
-      # signature — required for the phone to install updates over the previous
-      # build. A cache-based keystore (upstream's CI approach) can evict and
-      # silently rotate the signature, forcing an uninstall/reinstall.
+      # signature — required for the phone to install updates over the previous build.
       - name: Restore signing keystore from secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.PIXELPLAYEROSS_FORK_KEYSTORE_BASE64 }}
@@ -39,13 +37,20 @@ jobs:
             echo "::error::Signing secrets missing. Add PIXELPLAYEROSS_FORK_KEYSTORE_BASE64, PIXELPLAYEROSS_FORK_KEYSTORE_PASSWORD and PIXELPLAYEROSS_FORK_KEY_ALIAS in Settings > Secrets and variables > Actions."
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > fork-release.jks
+          echo "$KEYSTORE_BASE64" | base64 -d > release-signing.jks
           {
-            echo "storeFile=fork-release.jks"
+            echo "storeFile=release-signing.jks"
             echo "storePassword=$KEYSTORE_PASSWORD"
             echo "keyAlias=$KEY_ALIAS"
             echo "keyPassword=$KEYSTORE_PASSWORD"
           } > keystore.properties
+
+      - name: Read app version
+        run: |
+          VERSION_NAME="$(grep '^APP_VERSION_NAME=' gradle.properties | cut -d= -f2)"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
 
       - name: Build universal release APK
         run: ./gradlew :app:assembleRelease -Ppixelplayer.enableAbiSplits=false
@@ -58,18 +63,17 @@ jobs:
 
       - name: Name the APK
         run: |
-          SHORT_SHA="$(git rev-parse --short HEAD)"
-          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
           cp app/build/outputs/apk/release/app-release.apk \
-            "PixelPlayerOSS-fork-${{ github.run_number }}-$SHORT_SHA.apk"
+            "PixelPlayerOSS-v${VERSION_NAME}-build.${{ github.run_number }}.apk"
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: fork-build-${{ github.run_number }}
-          name: "fork-build ${{ github.run_number }} (${{ env.SHORT_SHA }})"
+          tag_name: v${{ env.VERSION_NAME }}-build.${{ github.run_number }}
+          name: "PixelPlayerOSS v${{ env.VERSION_NAME }} (build ${{ github.run_number }})"
+          prerelease: true
           body: |
-            Automated release build of `main` at ${{ github.sha }}.
-            Signed with the personal fork key. Install over previous fork-build releases.
-          files: PixelPlayerOSS-fork-${{ github.run_number }}-${{ env.SHORT_SHA }}.apk
+            Automated build of PixelPlayerOSS (unofficial Navidrome-focused build) from `main` at ${{ github.sha }}.
+            Marked as pre-release until this build line has been device-tested.
+          files: PixelPlayerOSS-v${{ env.VERSION_NAME }}-build.${{ github.run_number }}.apk
           fail_on_unmatched_files: true
