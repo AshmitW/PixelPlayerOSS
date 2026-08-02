@@ -225,7 +225,7 @@
     <string name="action_download_liked">Download liked songs for offline listening</string>
     <string name="download_remove_confirm_title">Remove downloaded copy?</string>
     <string name="download_remove_confirm_body">This removes the offline copies of these songs from your device. You can download them again anytime.</string>
-    <string name="cd_download_progress">Downloading, %1$d of %2$d songs</string>
+    <string name="cd_download_progress">Downloading, %1$d of %2$d songs. Tap to stop.</string>
     <string name="download_cancel_confirm_title">Stop download?</string>
     <string name="download_cancel_confirm_body">%1$d of %2$d songs are already downloaded and will be removed. Songs also downloaded through other selections are kept.</string>
     <string name="download_confirm_title">Download?</string>

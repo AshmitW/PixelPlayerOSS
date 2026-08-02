@@ -503,12 +503,12 @@ fun AlbumDetailScreen(
                                     pendingAlbumDownloadEstimate = null
                                 }
                             ) {
-                                Text(stringResource(R.string.confirm))
+                                Text(stringResource(R.string.confirm), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         },
                         dismissButton = {
                             TextButton(onClick = { pendingAlbumDownloadEstimate = null }) {
-                                Text(stringResource(R.string.cancel))
+                                Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     )
