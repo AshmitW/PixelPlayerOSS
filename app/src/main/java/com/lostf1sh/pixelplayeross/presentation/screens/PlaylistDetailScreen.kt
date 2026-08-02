@@ -3,6 +3,7 @@ package com.lostf1sh.pixelplayeross.presentation.screens
 import com.lostf1sh.pixelplayeross.presentation.navigation.navigateSafely
 import com.lostf1sh.pixelplayeross.presentation.navigation.navigateSafelyReplacing
 
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -208,6 +209,7 @@ fun PlaylistDetailScreen(
         }
     }.collectAsStateWithLifecycle(DownloadPinState.NotPinned)
     var showRemoveDownloadConfirmation by remember { mutableStateOf(false) }
+    var pendingPlaylistDownloadEstimate by remember { mutableStateOf<Pair<Int, Long>?>(null) }
 
     LaunchedEffect(playlistId) {
         playlistViewModel.loadPlaylistDetails(playlistId)
@@ -460,7 +462,13 @@ fun PlaylistDetailScreen(
                     if (navidromePlaylistId != null) {
                         DownloadPinButton(
                             state = playlistDownloadPinState,
-                            onPin = { offlineViewModel.pinPlaylist(navidromePlaylistId) },
+                            onPin = {
+                                val memberIds = songsInPlaylist.mapNotNull { it.navidromeId }
+                                scope.launch {
+                                    val bytes = offlineViewModel.estimateCollectionBytes(memberIds)
+                                    pendingPlaylistDownloadEstimate = memberIds.size to bytes
+                                }
+                            },
                             onUnpin = { showRemoveDownloadConfirmation = true },
                             contentDescription = stringResource(R.string.action_download_playlist),
                             size = 76.dp
@@ -924,6 +932,29 @@ fun PlaylistDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveDownloadConfirmation = false }) {
+                    Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        )
+    }
+
+    pendingPlaylistDownloadEstimate?.let { (count, bytes) ->
+        AlertDialog(
+            onDismissRequest = { pendingPlaylistDownloadEstimate = null },
+            title = { Text(stringResource(R.string.download_confirm_title)) },
+            text = { Text(stringResource(R.string.download_confirm_body, count, Formatter.formatShortFileSize(context, bytes))) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        navidromePlaylistId?.let { offlineViewModel.pinPlaylist(it) }
+                        pendingPlaylistDownloadEstimate = null
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPlaylistDownloadEstimate = null }) {
                     Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

@@ -5,6 +5,7 @@ package com.lostf1sh.pixelplayeross.presentation.screens
 import com.lostf1sh.pixelplayeross.presentation.navigation.navigateSafely
 import com.lostf1sh.pixelplayeross.presentation.navigation.navigateSafelyReplacing
 
+import android.text.format.Formatter
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -67,6 +68,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextGeometricTransform
@@ -218,6 +220,8 @@ fun AlbumDetailScreen(
                     }
                 }.collectAsStateWithLifecycle(DownloadPinState.NotPinned)
                 var showRemoveAlbumDownloadConfirmation by remember { mutableStateOf(false) }
+                var pendingAlbumDownloadEstimate by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+                val downloadEstimateContext = LocalContext.current
                 val songsByDisc = remember(songs) {
                     songs.groupBy { it.discNumber ?: 1 }
                 }
@@ -416,7 +420,13 @@ fun AlbumDetailScreen(
                                 }
                             },
                             downloadPinState = if (isNavidromeAlbum) albumDownloadPinState else null,
-                            onDownloadPinClick = { offlineViewModel.pinAlbum(songs) },
+                            onDownloadPinClick = {
+                                val memberIds = songs.mapNotNull { it.navidromeId }
+                                coroutineScope.launch {
+                                    val bytes = offlineViewModel.estimateCollectionBytes(memberIds)
+                                    pendingAlbumDownloadEstimate = memberIds.size to bytes
+                                }
+                            },
                             onDownloadUnpinClick = { showRemoveAlbumDownloadConfirmation = true }
                         )
                     } else {
@@ -475,6 +485,29 @@ fun AlbumDetailScreen(
                         },
                         dismissButton = {
                             TextButton(onClick = { showRemoveAlbumDownloadConfirmation = false }) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    )
+                }
+
+                pendingAlbumDownloadEstimate?.let { (count, bytes) ->
+                    AlertDialog(
+                        onDismissRequest = { pendingAlbumDownloadEstimate = null },
+                        title = { Text(stringResource(R.string.download_confirm_title)) },
+                        text = { Text(stringResource(R.string.download_confirm_body, count, Formatter.formatShortFileSize(downloadEstimateContext, bytes))) },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    offlineViewModel.pinAlbum(songs)
+                                    pendingAlbumDownloadEstimate = null
+                                }
+                            ) {
+                                Text(stringResource(R.string.confirm))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { pendingAlbumDownloadEstimate = null }) {
                                 Text(stringResource(R.string.cancel))
                             }
                         }

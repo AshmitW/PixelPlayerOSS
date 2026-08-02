@@ -228,6 +228,8 @@
     <string name="cd_download_progress">Downloading, %1$d of %2$d songs</string>
     <string name="download_cancel_confirm_title">Stop download?</string>
     <string name="download_cancel_confirm_body">%1$d of %2$d songs are already downloaded and will be removed. Songs also downloaded through other selections are kept.</string>
+    <string name="download_confirm_title">Download?</string>
+    <string name="download_confirm_body">%1$d songs, about %2$s.</string>
 
     <string name="download_requality_confirm_title">Re-download at the new quality?</string>
     <string name="download_requality_confirm_body">%1$d downloaded songs will be re-downloaded (~%2$s) at the new quality.</string>
