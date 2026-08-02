@@ -51,15 +51,13 @@ fun DownloadPinButton(
         }
 
         is DownloadPinState.InProgress -> {
-            // Tapping while a collection is mid-download is a no-op — cancellation isn't
-            // wired up for collection-level pins, only the pin/unpin toggle is. Left enabled
-            // (rather than enabled = false) so the progress indicator isn't dimmed by the
-            // button's disabled-state alpha.
+            // Tapping while mid-download cancels it (Spotify model): this calls the same
+            // onUnpin as the Complete state below, and the caller shows a confirmation first.
             // contentDescription is state-derived here (not the caller-provided static string)
             // since a screen reader needs the live completed/total count, not just "download".
             val progressDescription = stringResource(R.string.cd_download_progress, state.completed, state.total)
             FilledTonalIconButton(
-                onClick = {},
+                onClick = onUnpin,
                 modifier = modifier
                     .size(size)
                     .semantics { this.contentDescription = progressDescription }

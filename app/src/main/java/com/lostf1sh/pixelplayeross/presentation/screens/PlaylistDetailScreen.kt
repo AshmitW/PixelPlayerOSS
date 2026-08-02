@@ -892,10 +892,26 @@ fun PlaylistDetailScreen(
     }
 
     if (showRemoveDownloadConfirmation && navidromePlaylistId != null) {
+        val cancellingDownload = playlistDownloadPinState as? DownloadPinState.InProgress
         AlertDialog(
             onDismissRequest = { showRemoveDownloadConfirmation = false },
-            title = { Text(stringResource(R.string.download_remove_confirm_title)) },
-            text = { Text(stringResource(R.string.download_remove_confirm_body)) },
+            title = {
+                Text(
+                    stringResource(
+                        if (cancellingDownload != null) R.string.download_cancel_confirm_title
+                        else R.string.download_remove_confirm_title
+                    )
+                )
+            },
+            text = {
+                Text(
+                    if (cancellingDownload != null) {
+                        stringResource(R.string.download_cancel_confirm_body, cancellingDownload.completed, cancellingDownload.total)
+                    } else {
+                        stringResource(R.string.download_remove_confirm_body)
+                    }
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
