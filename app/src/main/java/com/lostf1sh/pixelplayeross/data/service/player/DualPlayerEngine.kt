@@ -1028,14 +1028,6 @@ class DualPlayerEngine @Inject constructor(
         jellyfinStreamProxy.resolveJellyfinUri(uriString)?.let { Uri.parse(it) }
     }
 
-    suspend fun resolveMediaItem(mediaItem: MediaItem): MediaItem {
-        val uri = mediaItem.localConfiguration?.uri ?: return mediaItem
-        val scheme = uri.scheme
-        if (scheme !in CLOUD_PROXY_SCHEMES) return mediaItem
-        val resolvedUri = resolveCloudUri(uri)
-        return if (resolvedUri == uri) mediaItem else mediaItem.buildUpon().setUri(resolvedUri).build()
-    }
-
     suspend fun prepareNext(target: TransitionTarget, startPositionMs: Long = 0L) {
         prepareNext(target.mediaItem, target.absoluteIndex, startPositionMs)
     }
@@ -1058,7 +1050,6 @@ class DualPlayerEngine @Inject constructor(
                     snapshot[preferredAbsoluteIndex].mediaId == mediaItem.mediaId -> preferredAbsoluteIndex
                 else -> findMediaItemIndex(snapshot, mediaItem.mediaId, currentAbsoluteIndex)
             }
-            val resolvedItem = resolveMediaItem(mediaItem)
             val auxiliaryPlayer = getOrCreateAuxiliaryPlayer()
 
             auxiliaryPlayer.stop()
@@ -1070,14 +1061,14 @@ class DualPlayerEngine @Inject constructor(
                 val windowItems = ArrayList<MediaItem>(end - start)
                 for (i in start until end) {
                     val item = snapshot[i]
-                    windowItems.add(if (i == targetIndex) resolvedItem else item)
+                    windowItems.add(if (i == targetIndex) mediaItem else item)
                 }
                 preparedWindowStartIndex = start
                 preparedPlayerUsesWindowedQueue = count > MAX_AUXILIARY_TIMELINE_ITEMS
                 auxiliaryPlayer.setMediaItems(windowItems, targetIndex - start, startPositionMs)
             } else {
                 resetPreparedWindowState()
-                auxiliaryPlayer.setMediaItem(resolvedItem)
+                auxiliaryPlayer.setMediaItem(mediaItem)
                 auxiliaryPlayer.seekTo(startPositionMs)
             }
 
