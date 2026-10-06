@@ -389,6 +389,20 @@ class NavidromeOfflineManager @Inject constructor(
         return pinned.size to bytes
     }
 
+    /**
+     * Size estimate for pinning a not-yet-pinned collection (playlist/album/Liked) at the
+     * currently selected quality tier, for the pre-pin confirmation dialog. Mirrors
+     * [estimateLibraryBytes] but takes the caller's own member-id list rather than the
+     * whole library.
+     */
+    suspend fun estimateCollectionBytes(memberNavidromeIds: List<String>): Long {
+        if (memberNavidromeIds.isEmpty()) return 0L
+        val tier = userPreferencesRepository.downloadQualityTierFlow.first()
+        val tierCap = maxBitRateForTier(tier).takeIf { it > 0 }
+        val songs = getSongsByNavidromeIdsChunked(memberNavidromeIds.distinct())
+        return songs.sumOf { estimateBytes(it.duration, it.bitRate, tierCap) }
+    }
+
     /** Size estimate for pinning the whole library at the currently selected quality tier. */
     suspend fun estimateLibraryBytes(): Long {
         val libraryIds = navidromeDao.getLibraryNavidromeIds()

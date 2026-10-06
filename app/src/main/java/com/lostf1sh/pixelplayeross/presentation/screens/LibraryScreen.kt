@@ -399,6 +399,7 @@ fun LibraryScreen(
     val likedDownloadPinState by remember(offlineViewModel) { offlineViewModel.forFavorites() }
         .collectAsStateWithLifecycle(DownloadPinState.NotPinned)
     var showRemoveFavoritesDownloadConfirmation by remember { mutableStateOf(false) }
+    var pendingLikedDownloadEstimate by remember { mutableStateOf<Pair<Int, Long>?>(null) }
 
     val onSongLongPress: (Song) -> Unit = remember(multiSelectionState, haptic) {
         { song -> 
@@ -1011,7 +1012,13 @@ fun LibraryScreen(
                                     onStorageFilterClick = { playerViewModel.toggleStorageFilter() },
                                     showDownloadButton = currentTabId == LibraryTabId.LIKED && isNavidromeLoggedIn,
                                     downloadPinState = likedDownloadPinState,
-                                    onDownloadPinClick = { offlineViewModel.pinFavorites() },
+                                    onDownloadPinClick = {
+                                        scope.launch {
+                                            val memberIds = offlineViewModel.currentFavoriteNavidromeIds()
+                                            val bytes = offlineViewModel.estimateCollectionBytes(memberIds)
+                                            pendingLikedDownloadEstimate = memberIds.size to bytes
+                                        }
+                                    },
                                     onDownloadUnpinClick = { showRemoveFavoritesDownloadConfirmation = true }
                                 )
                             }
@@ -1749,10 +1756,26 @@ fun LibraryScreen(
     }
 
     if (showRemoveFavoritesDownloadConfirmation) {
+        val cancellingDownload = likedDownloadPinState as? DownloadPinState.InProgress
         AlertDialog(
             onDismissRequest = { showRemoveFavoritesDownloadConfirmation = false },
-            title = { Text(stringResource(R.string.download_remove_confirm_title)) },
-            text = { Text(stringResource(R.string.download_remove_confirm_body)) },
+            title = {
+                Text(
+                    stringResource(
+                        if (cancellingDownload != null) R.string.download_cancel_confirm_title
+                        else R.string.download_remove_confirm_title
+                    )
+                )
+            },
+            text = {
+                Text(
+                    if (cancellingDownload != null) {
+                        stringResource(R.string.download_cancel_confirm_body, cancellingDownload.completed, cancellingDownload.total)
+                    } else {
+                        stringResource(R.string.download_remove_confirm_body)
+                    }
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -1765,6 +1788,29 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveFavoritesDownloadConfirmation = false }) {
+                    Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        )
+    }
+
+    pendingLikedDownloadEstimate?.let { (count, bytes) ->
+        AlertDialog(
+            onDismissRequest = { pendingLikedDownloadEstimate = null },
+            title = { Text(stringResource(R.string.download_confirm_title)) },
+            text = { Text(stringResource(R.string.download_confirm_body, count, Formatter.formatShortFileSize(context, bytes))) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        offlineViewModel.pinFavorites()
+                        pendingLikedDownloadEstimate = null
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingLikedDownloadEstimate = null }) {
                     Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -876,14 +877,15 @@ class DualPlayerEngine @Inject constructor(
                 val scheme = uri.scheme
                 if (scheme in CLOUD_PROXY_SCHEMES) {
                     val originalUri = uri.toString()
+                    // resolveDataSpec runs on Media3's loading thread, so blocking here is the
+                    // sanctioned way to start the proxy on a cache miss (e.g. first stream after
+                    // process cold start); bounded by ensureReady's 5s plus OkHttp's timeouts.
                     val resolved = resolvedUriCache.get(originalUri)
-                        ?: resolveReadyCloudProxyUri(uri)?.also { proxyUri ->
-                            resolvedUriCache.put(originalUri, proxyUri)
-                        }
+                        ?: runBlocking { resolveCloudUri(uri) }.takeIf { it != uri }
                     if (resolved != null) {
                         return dataSpec.buildUpon().setUri(resolved).build()
                     }
-                    Timber.tag("DualPlayerEngine").d("resolveDataSpec: Cache MISS for %s — using original URI", scheme)
+                    Timber.tag("DualPlayerEngine").d("resolveDataSpec: could not resolve %s — using original URI", scheme)
                 }
                 return dataSpec
             }
@@ -939,20 +941,6 @@ class DualPlayerEngine @Inject constructor(
             setWakeMode(C.WAKE_MODE_LOCAL)
             playWhenReady = false
         }
-    }
-
-    private fun resolveReadyCloudProxyUri(uri: Uri): Uri? {
-        val uriString = uri.toString()
-        val proxyUrl = when (uri.scheme) {
-            "navidrome" -> navidromeStreamProxy
-                .takeIf { it.isReady() }
-                ?.resolveNavidromeUri(uriString)
-            "jellyfin" -> jellyfinStreamProxy
-                .takeIf { it.isReady() }
-                ?.resolveJellyfinUri(uriString)
-            else -> null
-        }
-        return proxyUrl?.let(Uri::parse)
     }
 
     private fun getOrCreateAuxiliaryPlayer(): ExoPlayer {
@@ -1028,14 +1016,6 @@ class DualPlayerEngine @Inject constructor(
         jellyfinStreamProxy.resolveJellyfinUri(uriString)?.let { Uri.parse(it) }
     }
 
-    suspend fun resolveMediaItem(mediaItem: MediaItem): MediaItem {
-        val uri = mediaItem.localConfiguration?.uri ?: return mediaItem
-        val scheme = uri.scheme
-        if (scheme !in CLOUD_PROXY_SCHEMES) return mediaItem
-        val resolvedUri = resolveCloudUri(uri)
-        return if (resolvedUri == uri) mediaItem else mediaItem.buildUpon().setUri(resolvedUri).build()
-    }
-
     suspend fun prepareNext(target: TransitionTarget, startPositionMs: Long = 0L) {
         prepareNext(target.mediaItem, target.absoluteIndex, startPositionMs)
     }
@@ -1058,7 +1038,6 @@ class DualPlayerEngine @Inject constructor(
                     snapshot[preferredAbsoluteIndex].mediaId == mediaItem.mediaId -> preferredAbsoluteIndex
                 else -> findMediaItemIndex(snapshot, mediaItem.mediaId, currentAbsoluteIndex)
             }
-            val resolvedItem = resolveMediaItem(mediaItem)
             val auxiliaryPlayer = getOrCreateAuxiliaryPlayer()
 
             auxiliaryPlayer.stop()
@@ -1070,14 +1049,14 @@ class DualPlayerEngine @Inject constructor(
                 val windowItems = ArrayList<MediaItem>(end - start)
                 for (i in start until end) {
                     val item = snapshot[i]
-                    windowItems.add(if (i == targetIndex) resolvedItem else item)
+                    windowItems.add(if (i == targetIndex) mediaItem else item)
                 }
                 preparedWindowStartIndex = start
                 preparedPlayerUsesWindowedQueue = count > MAX_AUXILIARY_TIMELINE_ITEMS
                 auxiliaryPlayer.setMediaItems(windowItems, targetIndex - start, startPositionMs)
             } else {
                 resetPreparedWindowState()
-                auxiliaryPlayer.setMediaItem(resolvedItem)
+                auxiliaryPlayer.setMediaItem(mediaItem)
                 auxiliaryPlayer.seekTo(startPositionMs)
             }
 

@@ -1555,12 +1555,6 @@ class MusicService : MediaLibraryService() {
         }
 
         val preparedItems = restoredItems.toMutableList()
-        preparedItems.getOrNull(resolvedIndex)?.let { currentItem ->
-            val resolvedCurrentItem = runCatching { engine.resolveMediaItem(currentItem) }.getOrNull()
-            if (resolvedCurrentItem != null && resolvedCurrentItem != currentItem) {
-                preparedItems[resolvedIndex] = resolvedCurrentItem
-            }
-        }
 
         withContext(Dispatchers.Main.immediate) {
             val player = engine.masterPlayer

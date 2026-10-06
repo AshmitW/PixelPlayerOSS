@@ -2986,7 +2986,7 @@ class PlayerViewModel @Inject constructor(
         }
         _isSheetVisible.value = true
 
-        val startMediaItem = buildResolvedPlaybackMediaItem(effectiveStartSong)
+        val startMediaItem = buildPlaybackMediaItem(effectiveStartSong, playlistId)
 
         val playSongsAction = {
             dualPlayerEngine.cancelNext()
@@ -3024,26 +3024,6 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private suspend fun buildResolvedPlaybackMediaItem(song: Song): MediaItem {
-        val mediaItem = MediaItemBuilder.build(song)
-        val originalUri = mediaItem.localConfiguration?.uri ?: return mediaItem
-        val scheme = originalUri.scheme
-        if (
-            scheme != "navidrome" &&
-            scheme != "jellyfin"
-        ) {
-            return mediaItem
-        }
-
-        val resolvedUri = dualPlayerEngine.resolveCloudUri(originalUri)
-        return if (resolvedUri == originalUri) {
-            mediaItem
-        } else {
-            mediaItem.buildUpon().setUri(resolvedUri).build()
-        }
-    }
-
-
     private fun loadAndPlaySong(song: Song) {
         cancelPendingFullQueuePlayback()
         beginPreparingSong(song)
@@ -3065,7 +3045,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            val mediaItem = buildResolvedPlaybackMediaItem(song)
+            val mediaItem = buildPlaybackMediaItem(song)
             if (controller.currentMediaItem?.mediaId == song.id) {
                 if (!controller.isPlaying) controller.play()
             } else {
@@ -4684,7 +4664,7 @@ class PlayerViewModel @Inject constructor(
     fun playSong(song: Song) {
         viewModelScope.launch {
             val controller = mediaController ?: return@launch
-            val mediaItem = buildResolvedPlaybackMediaItem(song)
+            val mediaItem = buildPlaybackMediaItem(song)
 
             controller.setMediaItem(mediaItem)
             controller.prepare()
