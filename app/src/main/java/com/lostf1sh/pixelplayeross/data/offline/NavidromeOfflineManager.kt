@@ -225,7 +225,12 @@ class NavidromeOfflineManager @Inject constructor(
         val wifiOnly = userPreferencesRepository.downloadWifiOnlyFlow.first()
         val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
         val request = OneTimeWorkRequestBuilder<NavidromeDownloadWorker>()
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(networkType)
+                    .setRequiresStorageNotLow(true)
+                    .build()
+            )
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         // KEEP: a drain already in flight re-queries the incomplete list on its own
